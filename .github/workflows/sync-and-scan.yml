@@ -84,7 +84,7 @@ jobs:
 
   build-firmware:
     needs: sync-fork
-    if: needs.sync-fork.outputs.changed == 'true' || (github.event_name == 'workflow_dispatch' && inputs.force_build)
+    if: ${{ needs.sync-fork.outputs.changed == 'true' || (github.event_name == 'workflow_dispatch' && inputs.force_build) }}
     runs-on: ubuntu-latest
     outputs:
       artifact_name: ${{ steps.build.outputs.artifact_name }}
