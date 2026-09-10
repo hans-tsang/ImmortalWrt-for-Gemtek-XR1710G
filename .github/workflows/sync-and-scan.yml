@@ -1,0 +1,167 @@
+name: Sync Upstream and Scan Firmware
+
+# ---------------------------------------------------------------------------
+# This workflow lives in hans-tsang/ImmortalWrt-for-Gemtek-XR1710G, a fork of
+# naoki66/ImmortalWrt-for-Gemtek-XR1710G.
+#
+# 1. Sync job pulls new commits from upstream naoki66/master into this fork's
+#    master branch.
+# 2. If anything changed, build job compiles firmware from source in a clean
+#    Ubuntu runner (never trusts a pre-built binary).
+# 3. Scan job runs EMBA (fetched fresh from its own official repo) against
+#    the freshly-built image and fails the workflow if high/critical
+#    findings show up.
+#
+# SETUP REQUIRED (Settings -> Actions -> General):
+#   - Workflow permissions -> "Read and write permissions" (so sync can push)
+#
+# OPTIONAL repo variables (Settings -> Secrets and variables -> Actions -> Variables):
+#   UPSTREAM_REPO   (defaults to naoki66/ImmortalWrt-for-Gemtek-XR1710G below)
+#   UPSTREAM_BRANCH (defaults to master below)
+# ---------------------------------------------------------------------------
+
+on:
+  schedule:
+    - cron: '0 18 * * *'   # once a day, 18:00 UTC = 02:00 HKT
+  workflow_dispatch: {}     # lets you click "Run workflow" manually
+
+permissions:
+  contents: write
+
+env:
+  UPSTREAM_REPO: ${{ vars.UPSTREAM_REPO || 'naoki66/ImmortalWrt-for-Gemtek-XR1710G' }}
+  UPSTREAM_BRANCH: ${{ vars.UPSTREAM_BRANCH || 'master' }}
+  TARGET_BRANCH: master
+
+jobs:
+  sync-fork:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.sync.outputs.changed }}
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.TARGET_BRANCH }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Add upstream remote and fetch
+        run: |
+          git remote add upstream https://github.com/${{ env.UPSTREAM_REPO }}.git
+          git fetch upstream
+
+      - name: Compare HEADs
+        id: diff
+        run: |
+          LOCAL=$(git rev-parse HEAD)
+          REMOTE=$(git rev-parse upstream/${{ env.UPSTREAM_BRANCH }})
+          echo "local=$LOCAL" >> "$GITHUB_OUTPUT"
+          echo "remote=$REMOTE" >> "$GITHUB_OUTPUT"
+
+      - name: Merge upstream into fork
+        id: sync
+        run: |
+          git config user.name "fork-sync-bot"
+          git config user.email "actions@users.noreply.github.com"
+          if git merge --no-edit upstream/${{ env.UPSTREAM_BRANCH }}; then
+            if [ "$(git rev-parse HEAD)" != "${{ steps.diff.outputs.local }}" ]; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              git push origin ${{ env.TARGET_BRANCH }}
+            else
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "Merge conflict — needs manual review. Failing job."
+            exit 1
+          fi
+
+  build-firmware:
+    needs: sync-fork
+    if: needs.sync-fork.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      artifact_name: ${{ steps.build.outputs.artifact_name }}
+    steps:
+      - name: Checkout updated fork
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 1
+
+      - name: Install OpenWrt build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
+            python3-setuptools rsync swig unzip zlib1g-dev file wget
+
+      - name: Update feeds and build
+        id: build
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          make defconfig
+          make -j"$(nproc)" 2>&1 | tee build.log
+          ARTIFACT=$(find bin/targets -type f \( -name "*sysupgrade*.itb" -o -name "*.bin" \) | head -n1)
+          echo "artifact_name=$(basename "$ARTIFACT")" >> "$GITHUB_OUTPUT"
+          mkdir -p scan-input
+          cp "$ARTIFACT" scan-input/
+
+      - name: Upload built firmware for scanning
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-image
+          path: scan-input/
+          retention-days: 14
+
+      - name: Upload build log
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          retention-days: 14
+
+  scan-firmware:
+    needs: build-firmware
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download built firmware
+        uses: actions/download-artifact@v4
+        with:
+          name: firmware-image
+          path: scan-input
+
+      - name: Checkout EMBA
+        uses: actions/checkout@v4
+        with:
+          repository: e-m-b-a/emba
+          path: emba
+
+      - name: Run EMBA installer (non-interactive)
+        run: |
+          cd emba
+          sudo ./installer.sh -d || true
+
+      - name: Run EMBA scan
+        run: |
+          cd emba
+          FIRMWARE_FILE=$(find ../scan-input -type f | head -n1)
+          sudo ./emba -f "$FIRMWARE_FILE" -l ../emba-report -p ./scan-profiles/default-scan.emba
+
+      - name: Upload EMBA report
+        uses: actions/upload-artifact@v4
+        with:
+          name: emba-report
+          path: emba-report/
+          retention-days: 30
+
+      - name: Check for high severity findings
+        run: |
+          CSV="emba-report/csv_logs/f20_vuln_aggregator.csv"
+          if [ -f "$CSV" ]; then
+            if grep -qi "high\|critical" "$CSV"; then
+              echo "::warning::High or critical severity findings detected — review the emba-report artifact."
+              exit 1
+            fi
+          fi
