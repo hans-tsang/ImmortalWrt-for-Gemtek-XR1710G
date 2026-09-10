@@ -23,7 +23,13 @@ name: Sync Upstream and Scan Firmware
 on:
   schedule:
     - cron: '0 18 * * *'   # once a day, 18:00 UTC = 02:00 HKT
-  workflow_dispatch: {}     # lets you click "Run workflow" manually
+  workflow_dispatch:        # lets you click "Run workflow" manually
+    inputs:
+      force_build:
+        description: Run build and scan even when sync finds no upstream changes
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -78,7 +84,7 @@ jobs:
 
   build-firmware:
     needs: sync-fork
-    if: needs.sync-fork.outputs.changed == 'true'
+    if: ${{ needs.sync-fork.outputs.changed == 'true' || (github.event_name == 'workflow_dispatch' && inputs.force_build) }}
     runs-on: ubuntu-latest
     outputs:
       artifact_name: ${{ steps.build.outputs.artifact_name }}
