@@ -10,7 +10,7 @@ This directory packages [Lucky](https://github.com/gdy666/lucky) and `luci-app-l
 
 ## Build notes
 
-Enable `luci-app-lucky` in your OpenWrt configuration, then build firmware as usual.
+Enable both `lucky` and `luci-app-lucky` in your OpenWrt configuration, then build firmware as usual.
 
 ## Upstream references
 
