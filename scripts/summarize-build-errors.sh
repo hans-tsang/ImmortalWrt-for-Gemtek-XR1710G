@@ -21,12 +21,14 @@ match_error_lines() {
 
 		my $mode = shift @ARGV;
 		my $zh = pack("C*", 0xE9, 0x94, 0x99, 0xE8, 0xAF, 0xAF);
-		my $common = qr/(^|[[:space:]])(ERROR:|FAILED:|Error [0-9]+|\Q$zh\E [0-9]+|fatal error:|undefined reference|No rule to make target|failed to build|recipe for target|go: .*requires go)/;
+		my $error_markers = qr/(ERROR:|FAILED:|Error [0-9]+|\Q$zh\E [0-9]+|fatal error:|undefined reference|No rule to make target|failed to build|recipe for target|go: .*requires go)/;
+		my $common_first = qr/^(?!make: \*\*\*).*?$error_markers/;
+		my $common_all = qr/(^|[[:space:]])$error_markers/;
 		my $nested_make = qr/make\[[0-9]+\]: \*\*\*/;
 		my $top_make = qr/make: \*\*\*/;
-		my $re = $mode eq "first" ? qr/(?:$common|$nested_make)/
+		my $re = $mode eq "first" ? qr/(?:$common_first|$nested_make)/
 			: $mode eq "first-top-make" ? $top_make
-			: qr/(?:$common|$nested_make|$top_make)/;
+			: qr/(?:$common_all|$nested_make|$top_make)/;
 		my $found = 0;
 
 		while (<>) {
@@ -47,13 +49,6 @@ first_error_line="$(
 	clean_log |
 		match_error_lines first
 )"
-
-if [[ -z "$first_error_line" ]]; then
-	first_error_line="$(
-		clean_log |
-			match_error_lines first-top-make
-	)"
-fi
 
 echo "=== Build error summary ==="
 
