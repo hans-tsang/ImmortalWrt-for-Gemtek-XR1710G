@@ -606,7 +606,7 @@ function buildCpuInfoContent(st) {
 		E('span',{'style':'color:#999'}, '·'),
 		E('span',{}, (st.cpu_arch||'')),
 		st.cpu_temp && st.cpu_temp!=='N/A' ? E('span',{}, '(' + st.cpu_temp + ')') : null,
-		E('span',{'style':'color:#999'}, (st.cpu_count||0) + ' 核')
+		E('span',{'style':'color:#999'}, (st.cpu_count||0) + ' ' + _('Cores'))
 	];
 }
 

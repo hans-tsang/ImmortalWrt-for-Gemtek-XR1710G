@@ -517,7 +517,7 @@ function renderPpeTerminalBody(ppe) {
 function renderPpeTerminal(ppe, pauseButton) {
 	var bar = E('div', { 'class': 'ppe-terminal-bar' }, [
 		E('span', { 'class': 'ppe-terminal-dot' }),
-		E('span', { 'class': 'ppe-terminal-title' }, 'PPE 流量监控'),
+		E('span', { 'class': 'ppe-terminal-title' }, _('PPE Flow Monitor')),
 		pauseButton
 	]);
 	var body = E('div', { 'class': 'ppe-terminal-body', 'id': 'ppe-terminal-body' }, renderPpeTerminalBody(ppe));
@@ -1411,16 +1411,16 @@ function modeStatusData(dm, apo, flo, vo, ppo) {
 	return [
 		{
 			id: 'mode-status-mode',
-			title: '工作模式',
+			title: _('Operating Mode'),
 			value: mode === 'ap' ? _('AP MODE') : mode === 'router' ? _('ROUTER MODE') : _('DETECTING'),
 			sub: detected,
 			color: mode === 'ap' ? '#00c8ff' : mode === 'router' ? '#00cc44' : '#b45309',
 			cls: mode === 'ap' ? 'mode-ap' : mode === 'router' ? 'mode-router' : 'mode-detecting'
 		},
-		accelerationCard('mode-status-ap', 'AP模式加速', isEnabled(apo.enabled)),
-		accelerationCard('mode-status-flow', '硬件流量加速', isEnabled(flo.enabled)),
-		accelerationCard('mode-status-vlan', 'VLAN 标签卸载', isEnabled(vo.enabled)),
-		accelerationCard('mode-status-pppoe', 'PPPoE 透传卸载', isEnabled(ppo.enabled))
+		accelerationCard('mode-status-ap', _('AP Mode Acceleration'), isEnabled(apo.enabled)),
+		accelerationCard('mode-status-flow', _('Hardware Flow Acceleration'), isEnabled(flo.enabled)),
+		accelerationCard('mode-status-vlan', _('VLAN Tag Offload'), isEnabled(vo.enabled)),
+		accelerationCard('mode-status-pppoe', _('PPPoE Passthrough Offload'), isEnabled(ppo.enabled))
 	];
 }
 

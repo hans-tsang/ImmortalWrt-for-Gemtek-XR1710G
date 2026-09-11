@@ -106,14 +106,14 @@ function persistHistory() {
 
 function modeInfo(uciMode) {
 	return uciMode === 'manual'
-		? { value: _('Manual'), sub: '固定 PWM 输出', color: '#f5a623' }
-		: { value: _('Automatic'), sub: '按风扇曲线自动调速', color: '#00c8ff' };
+		? { value: _('Manual'), sub: _('Fixed PWM output'), color: '#f5a623' }
+		: { value: _('Automatic'), sub: _('Automatically adjusts by fan curve'), color: '#00c8ff' };
 }
 
 function presetInfo(uciMode, preset) {
-	if (uciMode === 'manual') return { value: _('Manual'), sub: '当前不使用曲线', color: '#6b7280' };
-	var labels = { quiet: '静音', balanced: '平衡', performance: '性能', custom: '自定义' };
-	var descriptions = { quiet: '优先降低噪声', balanced: '噪声与散热平衡', performance: '优先散热', custom: '自定义温度曲线' };
+	if (uciMode === 'manual') return { value: _('Manual'), sub: _('Fan curve not used in manual mode'), color: '#6b7280' };
+	var labels = { quiet: _('Quiet'), balanced: _('Balanced'), performance: _('Performance'), custom: _('Custom') };
+	var descriptions = { quiet: _('Prioritizes lower noise'), balanced: _('Balances noise and cooling'), performance: _('Prioritizes cooling'), custom: _('Custom temperature curve') };
 	return { value: labels[preset] || labels.balanced, sub: descriptions[preset] || descriptions.balanced, color: '#00cc44' };
 }
 
@@ -121,7 +121,7 @@ function summaryData(status) {
 	var mode = modeInfo(status.uci_mode);
 	var preset = presetInfo(status.uci_mode, status.uci_preset);
 	return [
-		{ id: 'fan-summary-rpm', title: _('Fan Speed'), value: (status.fan_rpm || 0) + ' RPM', sub: (status.fan_percentage || 0) + '% PWM 输出', color: '#00c8ff' },
+		{ id: 'fan-summary-rpm', title: _('Fan Speed'), value: (status.fan_rpm || 0) + ' RPM', sub: (status.fan_percentage || 0) + '% PWM output', color: '#00c8ff' },
 		{ id: 'fan-summary-pwm', title: 'PWM', value: (status.fan_pwm || 0) + ' / 255', sub: (status.fan_percentage || 0) + '%', color: '#00cc44' },
 		{ id: 'fan-summary-mode', title: _('Control Mode'), value: mode.value, sub: mode.sub, color: mode.color },
 		{ id: 'fan-summary-preset', title: _('Fan Curve Preset'), value: preset.value, sub: preset.sub, color: preset.color }
@@ -294,10 +294,10 @@ return view.extend({
 			E('div', { 'class': 'cbi-map-descr' }, _('View real-time fan speed and system temperatures.')),
 			renderSummary(status),
 			E('div', { 'class': 'fan-panel' }, [
-				E('div', { 'class': 'fan-panel-title' }, '实时趋势'),
+				E('div', { 'class': 'fan-panel-title' }, _('Real-Time Trends')),
 				E('div', { 'class': 'fan-chart-grid' }, [
-					chartCard('主板温度', (status.temp_board || 0) + '\u00b0C', 'fc-temp', '#f97316'),
-					chartCard('风扇 PWM', (status.fan_pwm || 0) + ' / 255', 'fc-pwm', '#00c8ff'),
+					chartCard(_('Board Temperature'), (status.temp_board || 0) + '\u00b0C', 'fc-temp', '#f97316'),
+					chartCard(_('Fan PWM'), (status.fan_pwm || 0) + ' / 255', 'fc-pwm', '#00c8ff'),
 					chartCard(_('Fan Speed'), (status.fan_rpm || 0) + ' RPM', 'fc-rpm', '#00cc44')
 				])
 			]),

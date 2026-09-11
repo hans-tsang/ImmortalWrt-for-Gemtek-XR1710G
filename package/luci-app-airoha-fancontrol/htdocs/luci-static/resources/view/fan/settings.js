@@ -120,7 +120,7 @@ function drawCurveCanvas(canvasId, curves, activePreset, customPreview) {
 	ctx.fillStyle = text;
 	ctx.font = '11px sans-serif';
 	ctx.textAlign = 'center';
-	ctx.fillText('温度 (\u00B0C)', width / 2, height - 5);
+	ctx.fillText(_('Temperature (\u00B0C)'), width / 2, height - 5);
 	ctx.save();
 	ctx.translate(12, height / 2);
 	ctx.rotate(-Math.PI / 2);
@@ -186,14 +186,14 @@ function drawCurveCanvas(canvasId, curves, activePreset, customPreview) {
 		ctx.fillStyle = text;
 		ctx.font = '10px sans-serif';
 		ctx.textAlign = 'left';
-		ctx.fillText({ quiet: '静音', balanced: '平衡', performance: '性能', custom: '自定义' }[preset] || preset, width - 84, legendY + 10);
+		ctx.fillText({ quiet: _('Quiet'), balanced: _('Balanced'), performance: _('Performance'), custom: _('Custom') }[preset] || preset, width - 84, legendY + 10);
 		legendY += 17;
 	});
 	if (customPreview) {
 		ctx.fillStyle = '#ff6600';
 		ctx.fillRect(width - 100, legendY, 12, 12);
 		ctx.fillStyle = text;
-		ctx.fillText('预览', width - 84, legendY + 10);
+		ctx.fillText(_('Preview'), width - 84, legendY + 10);
 	}
 }
 
