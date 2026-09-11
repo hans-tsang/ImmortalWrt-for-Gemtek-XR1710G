@@ -72,6 +72,11 @@ jobs:
           git config user.name "fork-sync-bot"
           git config user.email "actions@users.noreply.github.com"
           if git merge --no-edit upstream/${{ env.UPSTREAM_BRANCH }}; then
+            bash scripts/enforce-no-chinese.sh
+            if ! git diff --quiet; then
+              git add -A
+              git commit -m "chore: enforce no-Chinese content policy"
+            fi
             if [ "$(git rev-parse HEAD)" != "${{ steps.diff.outputs.local }}" ]; then
               echo "changed=true" >> "$GITHUB_OUTPUT"
               git push origin ${{ env.TARGET_BRANCH }}
@@ -107,6 +112,7 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           bash scripts/fix-stale-golang-host.sh
+          bash scripts/enforce-no-chinese.sh
           cp config.seed .config
           bash scripts/set-build-version.sh .config
           make defconfig

@@ -53,6 +53,15 @@ jobs:
             exit 1
           }
 
+      - name: Enforce no-Chinese content
+        if: steps.check.outputs.has_updates == 'true'
+        run: |
+          bash scripts/enforce-no-chinese.sh
+          if ! git diff --quiet; then
+            git add -A
+            git commit -m "chore: enforce no-Chinese content policy"
+          fi
+
       - name: Push to origin
         if: steps.check.outputs.has_updates == 'true'
         run: git push origin master

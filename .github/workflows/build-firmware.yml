@@ -66,6 +66,7 @@ jobs:
 
       - name: Configure
         run: |
+          bash scripts/enforce-no-chinese.sh
           cp config.seed .config
           BUILD_DATE='${{ steps.version.outputs.date }}' \
           BUILD_ID='${{ steps.version.outputs.build_id }}' \
@@ -126,7 +127,7 @@ jobs:
             echo ""
             echo "---"
             echo ""
-            echo "如果您觉得对您有帮助，请我喝杯咖啡吧，让我更有动力持续更新。"
+            echo "If this firmware helps you, consider buying me a coffee to support continued updates."
             echo ""
             echo '<img width="400" height="400" alt="c6ea388c976395326514814f80d512d5" src="https://github.com/user-attachments/assets/0ac90d58-ac73-4dc1-b926-276e539e5d0f" />'
           } > /tmp/release_body.md
