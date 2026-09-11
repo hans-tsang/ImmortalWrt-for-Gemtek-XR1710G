@@ -436,11 +436,11 @@ function buildTachoInner(ppe, cs, mode) {
 	p.push('<text x="150" y="113" text-anchor="middle" fill="var(--soc-text)" font-size="11" font-weight="700" font-family="monospace" letter-spacing="0">'+modeText+'</text>');
 	p.push('<text x="150" y="125" text-anchor="middle" fill="'+statusCol+'" font-size="10" font-weight="700" font-family="monospace" letter-spacing="0">'+statusText+'</text>');
 	p.push('<text x="150" y="145" text-anchor="middle" fill="'+bndColor+'" font-size="24" font-weight="700" font-family="monospace">'+bndTot+'</text>');
-	p.push('<text x="150" y="157" text-anchor="middle" fill="var(--soc-muted)" font-size="10" font-weight="700" font-family="monospace" letter-spacing="0">'+_('BOUND')+'</text>');
+	p.push('<text x="150" y="157" text-anchor="middle" fill="var(--soc-muted)" font-size="10" font-weight="700" font-family="monospace" letter-spacing="0">'+_('Bound')+'</text>');
 	p.push('<text x="117" y="176" text-anchor="middle" fill="#00c8ff"  font-size="10" font-weight="600" font-family="monospace">v4: '+n4+'</text>');
 	p.push('<text x="183" y="176" text-anchor="middle" fill="#9c27b0"  font-size="10" font-weight="600" font-family="monospace">v6: '+n6+'</text>');
 	p.push('<text x="150" y="190" text-anchor="middle" fill="'+unbColor+'" font-size="15" font-weight="700" font-family="monospace">'+unbTot+'</text>');
-	p.push('<text x="150" y="201" text-anchor="middle" fill="var(--soc-muted)" font-size="10" font-weight="700" font-family="monospace" letter-spacing="0">'+_('UNBOUND')+'</text>');
+	p.push('<text x="150" y="201" text-anchor="middle" fill="var(--soc-muted)" font-size="10" font-weight="700" font-family="monospace" letter-spacing="0">'+_('Unbound')+'</text>');
 
 	return p.join('');
 }

@@ -15,7 +15,7 @@ clean_log() {
 
 match_error_lines() {
 	local mode="$1"
-	perl -ne 'BEGIN { $mode = shift @ARGV; $zh = pack("C*", 0xE9, 0x94, 0x99, 0xE8, 0xAF, 0xAF); $re = qr/(^|[[:space:]])(ERROR:|FAILED:|Error [0-9]+|\Q$zh\E [0-9]+|fatal error:|undefined reference|No rule to make target|failed to build|recipe for target|go: .*requires go)|make(?:\[[0-9]+\])?: \*\*\*/; } if ($mode eq "first") { if (!$found && /$re/) { print $.; $found = 1 } } elsif (/$re/) { print $. . ":" . $_ }' "$mode" -
+	perl -ne 'BEGIN { $mode = shift @ARGV; $zh = pack("C*", 0xE9, 0x94, 0x99, 0xE8, 0xAF, 0xAF); $common = qr/(^|[[:space:]])(ERROR:|FAILED:|Error [0-9]+|\Q$zh\E [0-9]+|fatal error:|undefined reference|No rule to make target|failed to build|recipe for target|go: .*requires go)/; $make = $mode eq "first" ? qr/make\[[0-9]+\]: \*\*\*/ : qr/make(?:\[[0-9]+\])?: \*\*\*/; $re = qr/$common|$make/; } if ($mode eq "first") { if (!$found && /$re/) { print $.; $found = 1 } } elsif (/$re/) { print $. . ":" . $_ }' "$mode" -
 }
 
 first_error_line="$(
