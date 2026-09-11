@@ -15,7 +15,32 @@ clean_log() {
 
 match_error_lines() {
 	local mode="$1"
-	perl -ne 'BEGIN { $mode = shift @ARGV; $zh = pack("C*", 0xE9, 0x94, 0x99, 0xE8, 0xAF, 0xAF); $common = qr/(^|[[:space:]])(ERROR:|FAILED:|Error [0-9]+|\Q$zh\E [0-9]+|fatal error:|undefined reference|No rule to make target|failed to build|recipe for target|go: .*requires go)/; $nested_make = qr/make\[[0-9]+\]: \*\*\*/; $top_make = qr/make: \*\*\*/; if ($mode eq "first") { $re = qr/(?:$common|$nested_make)/; } elsif ($mode eq "first-top-make") { $re = $top_make; } else { $re = qr/(?:$common|$nested_make)/; } } if ($mode eq "first" || $mode eq "first-top-make") { if (!$found && /$re/) { print $.; $found = 1 } } elsif (/$re/) { print $. . ":" . $_ }' "$mode" -
+	perl -e '
+		use strict;
+		use warnings;
+
+		my $mode = shift @ARGV;
+		my $zh = pack("C*", 0xE9, 0x94, 0x99, 0xE8, 0xAF, 0xAF);
+		my $common = qr/(^|[[:space:]])(ERROR:|FAILED:|Error [0-9]+|\Q$zh\E [0-9]+|fatal error:|undefined reference|No rule to make target|failed to build|recipe for target|go: .*requires go)/;
+		my $nested_make = qr/make\[[0-9]+\]: \*\*\*/;
+		my $top_make = qr/make: \*\*\*/;
+		my $re = $mode eq "first" ? qr/(?:$common|$nested_make)/
+			: $mode eq "first-top-make" ? $top_make
+			: qr/(?:$common|$nested_make)/;
+		my $found = 0;
+
+		while (<>) {
+			if ($mode eq "first" || $mode eq "first-top-make") {
+				if (!$found && /$re/) {
+					print $.;
+					$found = 1;
+				}
+			}
+			elsif (/$re/) {
+				print $. . ":" . $_;
+			}
+		}
+	' "$mode" -
 }
 
 first_error_line="$(
