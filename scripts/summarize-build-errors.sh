@@ -26,7 +26,7 @@ match_error_lines() {
 		my $top_make = qr/make: \*\*\*/;
 		my $re = $mode eq "first" ? qr/(?:$common|$nested_make)/
 			: $mode eq "first-top-make" ? $top_make
-			: qr/(?:$common|$nested_make)/;
+			: qr/(?:$common|$nested_make|$top_make)/;
 		my $found = 0;
 
 		while (<>) {
