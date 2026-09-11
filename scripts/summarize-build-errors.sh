@@ -13,12 +13,11 @@ clean_log() {
 	sed -E $'s/\x1B\\[[0-9;]*[[:alpha:]]//g; s/\r$//' "$log_file"
 }
 
-localized_error_marker="$(printf '\351\224\231\350\257\257')"
-error_re="(^|[[:space:]])(ERROR:|FAILED:|Error [0-9]+|${localized_error_marker} [0-9]+|fatal error:|undefined reference|No rule to make target|failed to build|recipe for target|go: .*requires go)|make\\[[0-9]+\\]: \\*\\*\\*"
+error_re='(^|[[:space:]])(ERROR:|FAILED:|Error [0-9]+|\xE9\x94\x99\xE8\xAF\xAF [0-9]+|fatal error:|undefined reference|No rule to make target|failed to build|recipe for target|go: .*requires go)|make\[[0-9]+\]: \*\*\*'
 
 first_error_line="$(
 	clean_log |
-		awk -v re="$error_re" '$0 ~ re && !found { print NR; found = 1 }'
+		perl -ne 'if (!$found && /'"$error_re"'/) { print $.; $found = 1 }'
 )"
 
 echo "=== Build error summary ==="
@@ -38,5 +37,5 @@ echo "First matching error context around line $first_error_line:"
 echo
 echo "Last matching error lines:"
 clean_log |
-	awk -v re="$error_re" '$0 ~ re { print NR ":" $0 }' |
+	perl -ne 'print $. . ":" . $_ if /'"$error_re"'/' |
 	tail -20
