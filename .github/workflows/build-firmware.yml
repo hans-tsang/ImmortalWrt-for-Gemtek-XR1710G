@@ -124,12 +124,6 @@ jobs:
         run: |
           {
             printf '%s\n' "$RELEASE_NOTES"
-            echo ""
-            echo "---"
-            echo ""
-            echo "If this firmware helps you, consider buying me a coffee to support continued updates."
-            echo ""
-            echo '<img width="400" height="400" alt="c6ea388c976395326514814f80d512d5" src="https://github.com/user-attachments/assets/0ac90d58-ac73-4dc1-b926-276e539e5d0f" />'
           } > /tmp/release_body.md
           {
             echo "body<<EOF"
