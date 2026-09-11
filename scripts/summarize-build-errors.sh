@@ -13,9 +13,12 @@ clean_log() {
 	sed -E $'s/\x1B\\[[0-9;]*[[:alpha:]]//g; s/\r$//' "$log_file"
 }
 
+localized_error_marker="$(printf '\351\224\231\350\257\257')"
+error_re="(^|[[:space:]])(ERROR:|FAILED:|Error [0-9]+|${localized_error_marker} [0-9]+|fatal error:|undefined reference|No rule to make target|failed to build|recipe for target|go: .*requires go)|make\\[[0-9]+\\]: \\*\\*\\*"
+
 first_error_line="$(
 	clean_log |
-		awk '/(^|[[:space:]])(ERROR:|FAILED:|Error [0-9]+|fatal error:|undefined reference|No rule to make target|failed to build|recipe for target|go: .*requires go)|make\[[0-9]+\]: \*\*\*/ && !found { print NR; found = 1 }'
+		awk -v re="$error_re" '$0 ~ re && !found { print NR; found = 1 }'
 )"
 
 echo "=== Build error summary ==="
@@ -35,5 +38,5 @@ echo "First matching error context around line $first_error_line:"
 echo
 echo "Last matching error lines:"
 clean_log |
-	awk '/(^|[[:space:]])(ERROR:|FAILED:|Error [0-9]+|fatal error:|undefined reference|No rule to make target|failed to build|recipe for target|go: .*requires go)|make\[[0-9]+\]: \*\*\*/ { print NR ":" $0 }' |
+	awk -v re="$error_re" '$0 ~ re { print NR ":" $0 }' |
 	tail -20
