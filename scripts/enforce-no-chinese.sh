@@ -23,6 +23,7 @@ disable_chinese_packages() {
     [ -f "$cfg" ] || continue
     perl -i -pe '
       s/^CONFIG_PACKAGE_default-settings-chn=y$/# CONFIG_PACKAGE_default-settings-chn is not set/g;
+      s/^CONFIG_PACKAGE_luci-app-timewol=y$/# CONFIG_PACKAGE_luci-app-timewol is not set/g;
       s/^CONFIG_PACKAGE_(luci-i18n-[A-Za-z0-9_.+-]*-(?:zh-cn|zh-tw)|luci-i18n-[A-Za-z0-9_.+-]*-(?:zh_Hans|zh_Hant)|luci-i18n-[A-Za-z0-9_.+-]*-(?:zh_CN|zh_TW))=y$/# CONFIG_PACKAGE_$1 is not set/g;
     ' "$cfg"
   done
