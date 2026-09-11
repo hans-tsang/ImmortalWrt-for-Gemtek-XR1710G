@@ -131,12 +131,12 @@ var bandInfo = [
 function fmtFreq(khz) { return (!khz || khz === 0) ? 'N/A' : (khz / 1000).toFixed(0) + ' MHz'; }
 function governorLabel(governor) {
 	var labels = {
-		conservative: '\u4fdd\u5b88\u6a21\u5f0f',
-		ondemand: '\u6309\u9700\u6a21\u5f0f',
-		performance: '\u6027\u80fd\u6a21\u5f0f',
-		powersave: '\u7701\u7535\u6a21\u5f0f',
-		schedutil: '\u8c03\u5ea6\u6a21\u5f0f',
-		userspace: '\u7528\u6237\u7a7a\u95f4'
+		conservative: _('Conservative'),
+		ondemand: _('On-Demand'),
+		performance: _('Performance'),
+		powersave: _('Power Save'),
+		schedutil: _('Scheduler Utility'),
+		userspace: _('Userspace')
 	};
 	return labels[governor] || _(governor);
 }
@@ -159,9 +159,9 @@ function calcTotalMem(regions) {
 
 function pleHealth(free) {
 	if (typeof free !== 'number' || free < 0) return { text: 'N/A', color: '#888' };
-	if (free >= 1000000) return { text: '\u6b63\u5e38', color: '#4caf50' };
-	if (free >=  100000) return { text: '\u8b66\u544a', color: '#ff9800' };
-	return { text: '\u5371\u9669', color: '#f44336' };
+	if (free >= 1000000) return { text: _('Normal'), color: '#4caf50' };
+	if (free >=  100000) return { text: _('Warning'), color: '#ff9800' };
+	return { text: _('Critical'), color: '#f44336' };
 }
 
 function formatPleCount(free) {
@@ -379,8 +379,8 @@ function buildTachoInner(ppe, cs, mode) {
 	UNB_SCALE = Math.max(UNB_SCALE, 8);
 	var unbLit = Math.min(TICKS, Math.round((unbTot / UNB_SCALE) * TICKS));
 
-	var modeText   = mode === 'ap' ? 'AP \u6a21\u5f0f' : '\u8def\u7531\u6a21\u5f0f';
-	var statusText = cs.npuActive ? '\u786c\u4ef6\u52a0\u901f' : (cs.hwEnabled ? 'NPU \u7a7a\u95f2' : 'CPU \u8def\u5f84');
+	var modeText   = mode === 'ap' ? _('AP Mode') : _('Router Mode');
+	var statusText = cs.npuActive ? _('Hardware Acceleration') : (cs.hwEnabled ? _('NPU Idle') : _('CPU Path'));
 	var statusCol  = cs.npuActive ? '#00c8ff' : (cs.hwEnabled ? '#888' : '#ff6b35');
 	var bndColor   = bndTot > 0 ? '#00c8ff' : 'var(--soc-muted)';
 	var unbColor   = unbTot > 0 ? '#ff9800' : 'var(--soc-muted)';
@@ -436,11 +436,11 @@ function buildTachoInner(ppe, cs, mode) {
 	p.push('<text x="150" y="113" text-anchor="middle" fill="var(--soc-text)" font-size="11" font-weight="700" font-family="monospace" letter-spacing="0">'+modeText+'</text>');
 	p.push('<text x="150" y="125" text-anchor="middle" fill="'+statusCol+'" font-size="10" font-weight="700" font-family="monospace" letter-spacing="0">'+statusText+'</text>');
 	p.push('<text x="150" y="145" text-anchor="middle" fill="'+bndColor+'" font-size="24" font-weight="700" font-family="monospace">'+bndTot+'</text>');
-	p.push('<text x="150" y="157" text-anchor="middle" fill="var(--soc-muted)" font-size="10" font-weight="700" font-family="monospace" letter-spacing="0">\u5df2\u7ed1\u5b9a</text>');
+	p.push('<text x="150" y="157" text-anchor="middle" fill="var(--soc-muted)" font-size="10" font-weight="700" font-family="monospace" letter-spacing="0">'+_('BOUND')+'</text>');
 	p.push('<text x="117" y="176" text-anchor="middle" fill="#00c8ff"  font-size="10" font-weight="600" font-family="monospace">v4: '+n4+'</text>');
 	p.push('<text x="183" y="176" text-anchor="middle" fill="#9c27b0"  font-size="10" font-weight="600" font-family="monospace">v6: '+n6+'</text>');
 	p.push('<text x="150" y="190" text-anchor="middle" fill="'+unbColor+'" font-size="15" font-weight="700" font-family="monospace">'+unbTot+'</text>');
-	p.push('<text x="150" y="201" text-anchor="middle" fill="var(--soc-muted)" font-size="10" font-weight="700" font-family="monospace" letter-spacing="0">\u672a\u7ed1\u5b9a</text>');
+	p.push('<text x="150" y="201" text-anchor="middle" fill="var(--soc-muted)" font-size="10" font-weight="700" font-family="monospace" letter-spacing="0">'+_('UNBOUND')+'</text>');
 
 	return p.join('');
 }
@@ -745,10 +745,10 @@ function buildCompassSVG(cs, mode, ppe) {
 	// West: latency arc
 	'<path id="cp-arc-west" d="'+pWest+'" fill="none" stroke="'+cs.latColor+'" stroke-width="9" stroke-linecap="round" opacity="0.7"/>' +
 	// Quadrant labels — curved textPath following each arc
-	'<text font-size="11" font-weight="600" font-family="monospace" letter-spacing="0" opacity="0.9" fill="#00c8ff"><textPath href="#tp-north" startOffset="50%" text-anchor="middle">NPU \u8def\u5f84</textPath></text>' +
-	'<text font-size="11" font-weight="600" font-family="monospace" letter-spacing="0" opacity="0.9" id="cp-lbl-south"><textPath href="#tp-south" startOffset="50%" text-anchor="middle">\u786c\u4ef6\u7f13\u51b2</textPath></text>' +
-	'<text font-size="11" font-weight="600" font-family="monospace" letter-spacing="0" opacity="0.9" id="cp-lbl-east"><textPath href="#tp-east"  startOffset="50%" text-anchor="middle">\u5b8c\u6574\u6027</textPath></text>' +
-	'<text font-size="11" font-weight="600" font-family="monospace" letter-spacing="0" opacity="0.9" id="cp-lbl-west"><textPath href="#tp-west"  startOffset="50%" text-anchor="middle">\u5ef6\u8fdf</textPath></text>' +
+	'<text font-size="11" font-weight="600" font-family="monospace" letter-spacing="0" opacity="0.9" fill="#00c8ff"><textPath href="#tp-north" startOffset="50%" text-anchor="middle">'+_('NPU Path')+'</textPath></text>' +
+	'<text font-size="11" font-weight="600" font-family="monospace" letter-spacing="0" opacity="0.9" id="cp-lbl-south"><textPath href="#tp-south" startOffset="50%" text-anchor="middle">'+_('Hardware Buffer')+'</textPath></text>' +
+	'<text font-size="11" font-weight="600" font-family="monospace" letter-spacing="0" opacity="0.9" id="cp-lbl-east"><textPath href="#tp-east"  startOffset="50%" text-anchor="middle">'+_('Integrity')+'</textPath></text>' +
+	'<text font-size="11" font-weight="600" font-family="monospace" letter-spacing="0" opacity="0.9" id="cp-lbl-west"><textPath href="#tp-west"  startOffset="50%" text-anchor="middle">'+_('Latency')+'</textPath></text>' +
 	// Latency needle
 	'<line id="cp-needle" x1="150" y1="150" x2="'+tip[0].toFixed(1)+'" y2="'+tip[1].toFixed(1)+'" stroke="'+cs.latColor+'" stroke-width="2.5" stroke-linecap="round" opacity="0.9"/>' +
 	'<circle id="cp-needle-pivot" cx="150" cy="150" r="4" fill="'+cs.latColor+'" opacity="0.9"/>' +
@@ -796,13 +796,13 @@ function updateCompassSVG(cs, mode, ppe) {
 
 	// Update compass label text (translations may not be ready during initial render)
 	var cpText = document.getElementById('cp-lbl-north');
-	if (cpText) { var tp = cpText.querySelector('textPath'); if (tp) tp.textContent = 'NPU \u8def\u5f84'; }
+	if (cpText) { var tp = cpText.querySelector('textPath'); if (tp) tp.textContent = _('NPU Path'); }
 	cpText = document.getElementById('cp-lbl-south');
-	if (cpText) { var tp = cpText.querySelector('textPath'); if (tp) tp.textContent = '\u786c\u4ef6\u7f13\u51b2'; }
+	if (cpText) { var tp = cpText.querySelector('textPath'); if (tp) tp.textContent = _('Hardware Buffer'); }
 	cpText = document.getElementById('cp-lbl-east');
-	if (cpText) { var tp = cpText.querySelector('textPath'); if (tp) tp.textContent = '\u5b8c\u6574\u6027'; }
+	if (cpText) { var tp = cpText.querySelector('textPath'); if (tp) tp.textContent = _('Integrity'); }
 	cpText = document.getElementById('cp-lbl-west');
-	if (cpText) { var tp = cpText.querySelector('textPath'); if (tp) tp.textContent = '\u5ef6\u8fdf'; }
+	if (cpText) { var tp = cpText.querySelector('textPath'); if (tp) tp.textContent = _('Latency'); }
 	sa('cp-lbl-west',     'fill',  cs.latColor);
 	sa('cp-lbl-east',     'fill',  cs.eastColor);
 
@@ -836,7 +836,7 @@ function buildCpuNpuTacho(cs, ppe, st, ti) {
 
 	// Colours
 	var npuStatusCol = cs.npuActive ? '#00c8ff' : (cs.hwEnabled ? '#888' : '#ff6b35');
-	var npuStatus    = cs.npuActive ? '\u786c\u4ef6\u52a0\u901f' : (cs.hwEnabled ? 'NPU \u7a7a\u95f2' : 'CPU \u8def\u5f84');
+	var npuStatus    = cs.npuActive ? _('Hardware Acceleration') : (cs.hwEnabled ? _('NPU Idle') : _('CPU Path'));
 	var npuColor     = offloadPct > 60 ? '#00c8ff' : offloadPct > 30 ? '#f5a623' : '#888';
 
 	var TICKS = 90;
@@ -857,8 +857,8 @@ function buildCpuNpuTacho(cs, ppe, st, ti) {
 	p.push('<circle cx="150" cy="150" r="83" fill="none" stroke="var(--soc-border)" stroke-width="0.5" opacity="0.35"/>');
 
 	// Ring labels at 9 and 3 o'clock
-	p.push('<text x="107" y="153" text-anchor="middle" fill="#ffe066" font-size="9" font-weight="600" font-family="monospace" opacity="0.85">◄\u8d1f\u8f7d</text>');
-	p.push('<text x="193" y="153" text-anchor="middle" fill="#00cc44" font-size="9" font-weight="600" font-family="monospace" opacity="0.85">\u9891\u7387►</text>');
+	p.push('<text x="107" y="153" text-anchor="middle" fill="#ffe066" font-size="9" font-weight="600" font-family="monospace" opacity="0.85">◄'+_('Load')+'</text>');
+	p.push('<text x="193" y="153" text-anchor="middle" fill="#00cc44" font-size="9" font-weight="600" font-family="monospace" opacity="0.85">'+_('Frequency')+'►</text>');
 
 	// Tachometer ticks
 	for (var i = 0; i < TICKS; i++) {
@@ -892,7 +892,7 @@ function buildCpuNpuTacho(cs, ppe, st, ti) {
 	p.push('<text x="150" y="159" text-anchor="middle" fill="#ffe066" font-size="9" font-weight="600" font-family="monospace" letter-spacing="0">CPU</text>');
 	p.push('<text x="150" y="175" text-anchor="middle" fill="'+npuStatusCol+'" font-size="9" font-weight="600" font-family="monospace">'+npuStatus+'</text>');
 	p.push('<text x="150" y="190" text-anchor="middle" fill="'+npuColor+'" font-size="13" font-weight="700" font-family="monospace">'+offloadPct+'%</text>');
-	p.push('<text x="150" y="200" text-anchor="middle" fill="var(--soc-muted)" font-size="8" font-family="monospace" letter-spacing="0">\u52a0\u901f\u5360\u6bd4</text>');
+	p.push('<text x="150" y="200" text-anchor="middle" fill="var(--soc-muted)" font-size="8" font-family="monospace" letter-spacing="0">'+_('Offload Ratio')+'</text>');
 
 	// PLE pool — curved textPath at r=91, south arc (CCW 160°→20°), outside the freq ring.
 	// Matches the "UNB/BND FLOWS" curved-text style used on the WiFi band gauges.
@@ -1013,8 +1013,8 @@ function buildWifiBandTacho(bandIdx, ws, qType, bndCount, unbCount) {
 	p.push('<circle cx="150" cy="150" r="83" fill="none" stroke="var(--soc-border)" stroke-width="0.5" opacity="0.35"/>');
 
 	// Ring labels at 9 / 3 o'clock
-	p.push('<text x="107" y="153" text-anchor="middle" fill="'+retryCol+'" font-size="11" font-weight="700" font-family="monospace" opacity="0.9">◄\u91cd\u4f20</text>');
-	p.push('<text x="193" y="153" text-anchor="middle" fill="'+accent+'" font-size="11" font-weight="700" font-family="monospace" opacity="0.9">\u53d1\u9001►</text>');
+	p.push('<text x="107" y="153" text-anchor="middle" fill="'+retryCol+'" font-size="11" font-weight="700" font-family="monospace" opacity="0.9">◄'+_('Retry')+'</text>');
+	p.push('<text x="193" y="153" text-anchor="middle" fill="'+accent+'" font-size="11" font-weight="700" font-family="monospace" opacity="0.9">'+_('TX')+'►</text>');
 
 	// Tachometer ticks
 	for (var i = 0; i < TICKS; i++) {
@@ -1076,10 +1076,10 @@ function buildWifiBandTacho(bandIdx, ws, qType, bndCount, unbCount) {
 	p.push('<text x="150" y="164" text-anchor="middle" fill="'+accent+'" font-size="10" font-weight="700" font-family="monospace" letter-spacing="0">MBPS</text>');
 
 	// Max scale hint
-	p.push('<text x="150" y="175" text-anchor="middle" fill="var(--soc-muted)" font-size="9" font-weight="600" font-family="monospace">\u4e0a\u9650 '+Math.round(maxScale)+'</text>');
+	p.push('<text x="150" y="175" text-anchor="middle" fill="var(--soc-muted)" font-size="9" font-weight="600" font-family="monospace">'+_('Max')+' '+Math.round(maxScale)+'</text>');
 
 	// Station count
-	p.push('<text x="150" y="187" text-anchor="middle" fill="var(--soc-muted)" font-size="10" font-weight="600" font-family="monospace">'+stations+' \u5ba2\u6237\u7aef</text>');
+	p.push('<text x="150" y="187" text-anchor="middle" fill="var(--soc-muted)" font-size="10" font-weight="600" font-family="monospace">'+stations+' '+_('Clients')+'</text>');
 
 	// Signal + retry (only when relevant)
 	if (stations > 0 && signal !== 0)

@@ -257,8 +257,8 @@ return view.extend({
 			return '<div class="fan-curve-wrap"><canvas id="curve-canvas" class="fan-curve-canvas"></canvas></div>';
 		};
 
-		s = m.section(form.NamedSection, 'custom', 'curve', _('\u81EA\u5B9A\u4E49\u66F2\u7EBF\u7F16\u8F91\u5668'),
-			_('\u5B9A\u4E495\u4E2A\u6E29\u5EA6/PWM\u70B9\u3002\u66F2\u7EBF\u9884\u89C8\u968F\u8F93\u5165\u5B9E\u65F6\u66F4\u65B0\u3002'));
+		s = m.section(form.NamedSection, 'custom', 'curve', _('Custom Curve Editor'),
+			_('Define 5 temperature/PWM points. The curve preview updates live as you type.'));
 		s.anonymous = true;
 		s.addremove = false;
 
@@ -272,13 +272,13 @@ return view.extend({
 
 		for (var i = 1; i <= 5; i++) {
 			o = s.option(form.Value, 'point' + i + '_temp',
-				_('\u7B2C%d\u70B9 - \u6E29\u5EA6 (\u00B0C)').format(i));
+				_('Point %d - Temperature (\u00B0C)').format(i));
 			o.datatype = 'range(0,100)';
 			o.default = String(defaults['point' + i + '_temp']);
 			o.rmempty = false;
 
 			o = s.option(form.Value, 'point' + i + '_pwm',
-				_('\u7B2C%d\u70B9 - PWM (0-255)').format(i));
+				_('Point %d - PWM (0-255)').format(i));
 			o.datatype = 'range(0,255)';
 			o.default = String(defaults['point' + i + '_pwm']);
 			o.rmempty = false;

@@ -476,12 +476,12 @@ function updateFreqBar(hw, min, max, pll, gov) {
 
 function governorLabel(governor) {
 	var labels = {
-		conservative: '\u4fdd\u5b88\u6a21\u5f0f',
-		ondemand: '\u6309\u9700\u6a21\u5f0f',
-		performance: '\u6027\u80fd\u6a21\u5f0f',
-		powersave: '\u7701\u7535\u6a21\u5f0f',
-		schedutil: '\u8c03\u5ea6\u6a21\u5f0f',
-		userspace: '\u7528\u6237\u7a7a\u95f4'
+		conservative: _('Conservative'),
+		ondemand: _('On-Demand'),
+		performance: _('Performance'),
+		powersave: _('Power Save'),
+		schedutil: _('Scheduler Utility'),
+		userspace: _('Userspace')
 	};
 	return labels[governor] || _(governor);
 }
@@ -509,13 +509,13 @@ function offloadBadgeState(enabled, blocked) {
 	blocked = isEnabled(blocked);
 
 	if (blocked && enabled)
-		return { cls: 'offload-blocked', text: '\u8bf7\u5173\u95ed' };
+		return { cls: 'offload-blocked', text: _('Please disable') };
 	if (blocked)
-		return { cls: 'offload-blocked', text: '\u8def\u7531\u6a21\u5f0f\u7981\u7528' };
+		return { cls: 'offload-blocked', text: _('Disabled in router mode') };
 
 	return enabled
-		? { cls: 'offload-on', text: '\u5df2\u5f00\u542f' }
-		: { cls: 'offload-off', text: '\u5df2\u7981\u7528' };
+		? { cls: 'offload-on', text: _('Enabled') }
+		: { cls: 'offload-off', text: _('Disabled') };
 }
 
 function renderOffloadBadge(enabled, id, blocked) {
@@ -548,8 +548,8 @@ function updateOffloadControl(selectId, badgeId, enabled, blocked) {
 	var label = sel ? sel.closest('label') : null;
 	if (label)
 		label.title = blocked
-			? (enabled ? '\u8def\u7531\u6a21\u5f0f\u4e0b\u5efa\u8bae\u5173\u95ed' : '\u8def\u7531\u6a21\u5f0f\u4f7f\u7528\u786c\u4ef6\u6d41\u91cf\u52a0\u901f')
-			: (enabled ? '\u70b9\u51fb\u7981\u7528' : '\u70b9\u51fb\u542f\u7528');
+			? (enabled ? _('Recommended to disable in router mode') : _('Router mode uses hardware flow acceleration'))
+			: (enabled ? _('Click to disable') : _('Click to enable'));
 }
 
 function renderOffloadSelect(enabled, id, callFn, badgeId, blocked) {
@@ -564,7 +564,7 @@ function renderOffloadSelect(enabled, id, callFn, badgeId, blocked) {
 			var currentBlocked = ev.target.getAttribute('data-blocked') === '1';
 			if (currentBlocked && val === 1) {
 				ev.target.checked = false;
-				ui.addNotification(null, E('p', {}, '\u8def\u7531\u6a21\u5f0f\u4e0b\u8bf7\u53ea\u4f7f\u7528\u786c\u4ef6\u6d41\u91cf\u52a0\u901f'), 'warning');
+				ui.addNotification(null, E('p', {}, _('In router mode, use only hardware flow acceleration')), 'warning');
 				return;
 			}
 			ev.target.disabled = true;
@@ -589,8 +589,8 @@ function renderOffloadSelect(enabled, id, callFn, badgeId, blocked) {
 		E('label', {
 			'class': 'npu-toggle',
 			'title': blocked
-				? (enabled ? '\u8def\u7531\u6a21\u5f0f\u4e0b\u5efa\u8bae\u5173\u95ed' : '\u8def\u7531\u6a21\u5f0f\u4f7f\u7528\u786c\u4ef6\u6d41\u91cf\u52a0\u901f')
-				: (enabled ? '\u70b9\u51fb\u7981\u7528' : '\u70b9\u51fb\u542f\u7528')
+				? (enabled ? _('Recommended to disable in router mode') : _('Router mode uses hardware flow acceleration'))
+				: (enabled ? _('Click to disable') : _('Click to enable'))
 		}, [
 			toggle,
 			E('span', { 'class': 'npu-toggle-track' })
@@ -606,7 +606,7 @@ function buildCpuInfoContent(st) {
 		E('span',{'style':'color:#999'}, '·'),
 		E('span',{}, (st.cpu_arch||'')),
 		st.cpu_temp && st.cpu_temp!=='N/A' ? E('span',{}, '(' + st.cpu_temp + ')') : null,
-		E('span',{'style':'color:#999'}, (st.cpu_count||0) + ' ' + _('Cores'))
+		E('span',{'style':'color:#999'}, _('%d cores').format(st.cpu_count || 0))
 	];
 }
 
@@ -713,28 +713,28 @@ return view.extend({
 				E('div',{'class':'offload-item'},[
 					E('span',{'class':'offload-name'},[
 						E('span',{'class':'offload-dot'}),
-						E('span',{'class':'soc-text'},'VLAN \u6807\u7b7e\u5378\u8f7d')
+						E('span',{'class':'soc-text'},_('VLAN Tag Offload'))
 					]),
 					renderOffloadSelect(vo.enabled, 'vlan-offload-select', function(v){return callSetVlanOffload(v);}, 'vlan-offload-badge', bridgeBlocked)
 				]),
 				E('div',{'class':'offload-item'},[
 					E('span',{'class':'offload-name'},[
 						E('span',{'class':'offload-dot'}),
-						E('span',{'class':'soc-text'},'PPPoE \u900f\u4f20\u5378\u8f7d')
+						E('span',{'class':'soc-text'},_('PPPoE Passthrough Offload'))
 					]),
 					renderOffloadSelect(ppo.enabled, 'pppoe-offload-select', function(v){return callSetPppoeOffload(v);}, 'pppoe-offload-badge', bridgeBlocked)
 				]),
 				E('div',{'class':'offload-item'},[
 					E('span',{'class':'offload-name'},[
 						E('span',{'class':'offload-dot'}),
-						E('span',{'class':'soc-text'},'\u786c\u4ef6\u6d41\u91cf\u52a0\u901f')
+						E('span',{'class':'soc-text'},_('Hardware Flow Acceleration'))
 					]),
 					renderOffloadSelect(flo.enabled, 'flow-offload-select', function(v){return callSetFlowOffload(v);}, 'flow-offload-badge', false)
 				]),
 				E('div',{'class':'offload-item'},[
 					E('span',{'class':'offload-name'},[
 						E('span',{'class':'offload-dot'}),
-						E('span',{'class':'soc-text'},'AP \u6a21\u5f0f\u52a0\u901f')
+						E('span',{'class':'soc-text'},_('AP Mode Acceleration'))
 					]),
 					renderOffloadSelect(apo.enabled, 'apmode-offload-select', function(v){return callSetApModeOffload(v);}, 'apmode-offload-badge', bridgeBlocked)
 				])
