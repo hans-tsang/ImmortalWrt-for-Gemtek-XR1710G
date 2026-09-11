@@ -13,9 +13,41 @@ clean_log() {
 	sed -E $'s/\x1B\\[[0-9;]*[[:alpha:]]//g; s/\r$//' "$log_file"
 }
 
+match_error_lines() {
+	local mode="$1"
+	perl -e '
+		use strict;
+		use warnings;
+
+		my $mode = shift @ARGV;
+		my $zh = pack("C*", 0xE9, 0x94, 0x99, 0xE8, 0xAF, 0xAF);
+		my $error_markers = qr/(ERROR:|FAILED:|Error [0-9]+|\Q$zh\E [0-9]+|fatal error:|undefined reference|No rule to make target|failed to build|recipe for target|go: .*requires go)/;
+		my $common_first = qr/^(?!make: \*\*\*).*?$error_markers/;
+		my $common_all = qr/(^|[[:space:]])$error_markers/;
+		my $nested_make = qr/make\[[0-9]+\]: \*\*\*/;
+		my $top_make = qr/make: \*\*\*/;
+		my $re = $mode eq "first" ? qr/(?:$common_first|$nested_make)/
+			: $mode eq "first-top-make" ? $top_make
+			: qr/(?:$common_all|$nested_make|$top_make)/;
+		my $found = 0;
+
+		while (<>) {
+			if ($mode eq "first" || $mode eq "first-top-make") {
+				if (!$found && /$re/) {
+					print $.;
+					$found = 1;
+				}
+			}
+			elsif (/$re/) {
+				print $. . ":" . $_;
+			}
+		}
+	' "$mode" -
+}
+
 first_error_line="$(
 	clean_log |
-		awk '/(^|[[:space:]])(ERROR:|FAILED:|Error [0-9]+|错误 [0-9]+|fatal error:|undefined reference|No rule to make target|failed to build|recipe for target|go: .*requires go)|make\[[0-9]+\]: \*\*\*/ && !found { print NR; found = 1 }'
+		match_error_lines first
 )"
 
 echo "=== Build error summary ==="
@@ -35,5 +67,5 @@ echo "First matching error context around line $first_error_line:"
 echo
 echo "Last matching error lines:"
 clean_log |
-	awk '/(^|[[:space:]])(ERROR:|FAILED:|Error [0-9]+|错误 [0-9]+|fatal error:|undefined reference|No rule to make target|failed to build|recipe for target|go: .*requires go)|make\[[0-9]+\]: \*\*\*/ { print NR ":" $0 }' |
+	match_error_lines all |
 	tail -20

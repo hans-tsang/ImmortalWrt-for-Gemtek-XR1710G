@@ -97,7 +97,7 @@ return view.extend({
 
     handleResetUser: async function () {
     try {
-        // 检查文件权限
+        // Check file permissions
         const stat = await fs.stat('/usr/bin/lucky');
         const result = await fs.exec('/usr/bin/lucky', ['-rResetUser', '-cd', '/etc/lucky']);
         if (result.code === 0) {
@@ -115,7 +115,7 @@ return view.extend({
         m = new form.Map('lucky', _('Lucky'),
             _('ipv4/ipv6 portforward,ddns,reverseproxy proxy,wake on lan,IOT and more,Default username and password 666'));
 
-        // 状态显示部分
+        // Status display section
         s = m.section(form.TypedSection);
         s.anonymous = true;
         s.addremove = false;
@@ -134,7 +134,7 @@ return view.extend({
                 }).catch(function(error) {
                     console.error('Poll error:', error);
                 });
-            }, 5); // 添加轮询间隔5秒
+            }, 5); // Poll every 5 seconds
             
             return E('div', { class: 'cbi-section', id: 'status_bar' }, [
                 E('div', { id: 'service_status' }, 
