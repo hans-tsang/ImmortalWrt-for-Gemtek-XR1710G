@@ -28,6 +28,9 @@ Customized ImmortalWrt firmware for Gemtek XR1710G (Brightspeed XR1710G).
 
 - XR1710G device tree and platform-specific kernel patches
 - Airoha NPU related acceleration and tuning support
+- Wireless mesh networking with LuCI UI: 802.11s (SAE) via `wpad-mesh-mbedtls`,
+  B.A.T.M.A.N. advanced (`kmod-batman-adv`, `batctl-default`,
+  `luci-proto-batman-adv`) and client steering (`dawn`, `luci-app-dawn`)
 - Fan control, recovery helper, and flow offload related LuCI apps
 - WireGuard, SmartDNS, DDNS, UPnP, ZeroTier, and other network tools
 
@@ -60,6 +63,9 @@ This repository enforces a no-Chinese-content policy for UI-related locale artif
 - Removes Chinese LuCI locale directories (`zh-cn`, `zh_Hans`, `zh_CN`, `zh-tw`, `zh_Hant`, `zh_TW`)
 - Disables `default-settings-chn` and Chinese LuCI i18n package selections in `config.seed` / `.config`
 - Restores `README.md` from this English source file (`README.en.md`)
+- Fails if any tracked text file still contains Chinese characters
+  (upstream kernel patch directories are skipped so that patch author
+  attribution is preserved)
 
 To apply manually:
 
