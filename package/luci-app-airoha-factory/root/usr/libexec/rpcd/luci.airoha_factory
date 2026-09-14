@@ -17,7 +17,7 @@
 #         - ethaddr  = wan_mac by default (may be overridden per save)
 #         - oui      = first three octets of ethaddr, formatted 00:AA:BB
 #
-# Linkage rules (the "联动" the UI implements):
+# Linkage rules (the field interlocking the UI implements):
 #   editing WAN MAC  ->  LAN MAC = WAN+1, ethaddr = WAN (both overridable)
 #   ethaddr          ->  OUI = first3(ethaddr)
 #

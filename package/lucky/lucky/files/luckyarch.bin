@@ -7,7 +7,7 @@
 	[ -n "$(echo $cputype | grep -E "linux.*86.*")" ] && cpucore="i386"
 	[ -n "$(echo $cputype | grep -E "linux.*86_64.*")" ] && cpucore="x86_64"
 	if [ -n "$(echo $cputype | grep -E "linux.*mips.*")" ];then
-		mipstype=$(echo -n I | hexdump -o 2>/dev/null | awk '{ print substr($2,6,1); exit}') #通过判断大小端判断mips或mipsle
+		mipstype=$(echo -n I | hexdump -o 2>/dev/null | awk '{ print substr($2,6,1); exit}') # detect endianness to choose mips or mipsle
 		[ "$mipstype" = "0" ] && cpucore="mips_softfloat" || cpucore="mipsle_softfloat"
 	fi
 
