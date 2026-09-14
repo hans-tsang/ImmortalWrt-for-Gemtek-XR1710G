@@ -42,21 +42,21 @@
 		compatible = "gpio-leds";
 
 		led_power_green: led-0 {
-			/* Written "电源" (Power supply) */
+			/* Silkscreen label: Power supply */
 			color = <LED_COLOR_ID_GREEN>;
 			function = LED_FUNCTION_POWER;
 			gpios = <&gpio0 6 GPIO_ACTIVE_LOW>;
 		};
 
 		led_registered_green: led-1 {
-			/* Written "注册" (Registered) */
+			/* Silkscreen label: Registered */
 			color = <LED_COLOR_ID_GREEN>;
 			function = LED_FUNCTION_WAN;
 			gpios = <&gpio0 2 GPIO_ACTIVE_LOW>;
 		};
 
 		led_signal_red: led-2 {
-			/* Written "光信号" (Optical signal) */
+			/* Silkscreen label: Optical signal */
 			color = <LED_COLOR_ID_RED>;
 			function = "signal";
 			gpios = <&gpio0 31 GPIO_ACTIVE_LOW>;

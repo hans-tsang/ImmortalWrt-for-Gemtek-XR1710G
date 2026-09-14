@@ -292,8 +292,8 @@
 			/*
 			 * stock: "WTB"
 			 *
-			 * The "WTB" partition is for "ネット脅威ブロッカー"
-			 * (en: Web Threat Blocker, DiXiM Security).
+			 * The "WTB" partition is for the Buffalo "Net Threat Blocker"
+			 * feature (Web Threat Blocker, DiXiM Security).
 			 * By default, a UBI with "dpi" volume exists. This UBI will
 			 * be rebuilt automatically if no "dpi" volume exists while
 			 * booting with stock firmware.

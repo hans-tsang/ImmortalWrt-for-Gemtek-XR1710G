@@ -2,7 +2,7 @@
 	> File Name: shellsync.c
 	> Author: GuoGuo
 	> Mail: gch981213@gmail.com
-	> Created Time: 2014年11月06日 星期四 19时15分30秒
+	> Created Time: 2014-11-06 (Thursday) 19:15:30
  ************************************************************************/
 #include<stdio.h>
 #include<semaphore.h>
