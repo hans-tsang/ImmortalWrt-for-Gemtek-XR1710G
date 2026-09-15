@@ -1,6 +1,6 @@
 {
 	"admin/network/meshconf": {
-		"title": "Mesh 组网",
+		"title": "Mesh Networking",
 		"order": 16,
 		"action": {
 			"type": "view",
