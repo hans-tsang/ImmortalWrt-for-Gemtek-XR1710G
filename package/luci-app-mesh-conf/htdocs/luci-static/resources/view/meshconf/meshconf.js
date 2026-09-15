@@ -737,7 +737,7 @@ return view.extend({
 		if (!problems.length) return;
 
 		this.coverageAlert.appendChild(E('strong', {}, _('Current configuration does not meet roaming requirements')));
-		this.coverageAlert.appendChild(E('div', {}, problems.join('; ') + '。'));
+		this.coverageAlert.appendChild(E('div', {}, problems.join('; ') + '.'));
 		this.coverageAlert.appendChild(E('div', {}, _('2.4G / 5G / 6G can use separate SSIDs. Only multiple radios in the same band must share the same SSID, encryption, and password, with different channels.')));
 	},
 
@@ -784,7 +784,7 @@ return view.extend({
 			});
 			if (missing.length) {
 				ui.addNotification(null, E('p', _('Enter SSID for enabled radio: %s').format(
-					missing.map(function(c) { return c.radio; }).join('、'))));
+					missing.map(function(c) { return c.radio; }).join(', '))));
 				return;
 			}
 			var problems = this.coverageProblems(true);
@@ -938,7 +938,7 @@ return view.extend({
 			channelLines.length
 				? E('div', { 'class': 'nm-alert' }, [
 					E('strong', {}, _('Channels in the same band have been offset automatically for this client node by node index:')),
-					E('div', {}, channelLines.join('；'))
+					E('div', {}, channelLines.join('; '))
 				])
 				: '',
 			E('textarea', { 'class': 'nm-config-preview', 'readonly': 'readonly', 'wrap': 'off' }, chunks),

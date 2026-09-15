@@ -35,7 +35,8 @@ enforce_english_readme() {
   fi
 }
 
-# Scan tracked text files for CJK ideographs.  Author names inside upstream
+# Scan tracked text files for CJK ideographs and CJK/full-width punctuation.
+# Author names inside upstream
 # kernel patches are attribution metadata and must not be rewritten, so the
 # patch directories are excluded from the scan.
 scan_for_chinese_characters() {
@@ -44,7 +45,7 @@ scan_for_chinese_characters() {
   command -v git >/dev/null 2>&1 || return 0
   git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
 
-  matches="$(git grep -I -n -P '[\x{4e00}-\x{9fff}]' -- \
+  matches="$(git grep -I -n -P '[\x{3000}-\x{303f}\x{3400}-\x{4dbf}\x{4e00}-\x{9fff}\x{ff01}-\x{ff60}]' -- \
     ':!target/linux/*/patches-*' ':!*/patches/*' ':!feeds' || true)"
 
   if [ -n "$matches" ]; then
