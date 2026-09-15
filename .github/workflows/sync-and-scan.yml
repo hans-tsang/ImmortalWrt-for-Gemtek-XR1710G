@@ -73,8 +73,7 @@ jobs:
           git config user.email "actions@users.noreply.github.com"
           if ! git merge --no-edit upstream/${{ env.UPSTREAM_BRANCH }}; then
             echo "Merge reported conflicts, attempting automatic resolution for local customizations."
-            git checkout --ours README.md config.seed || true
-            git add README.md config.seed || true
+            bash scripts/resolve-sync-conflicts.sh
             if git diff --name-only --diff-filter=U | grep -q .; then
               echo "Merge conflict — needs manual review. Failing job."
               git diff --name-only --diff-filter=U
