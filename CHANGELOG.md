@@ -5,6 +5,23 @@ XR1710G firmware repository. Routine ImmortalWrt upstream merges are not listed
 item by item; only changes that affect how this device is built or behaves are
 recorded here.
 
+## 2026-09-15
+
+### Release packaging
+
+- Stopped repeating the build ID in firmware file names. The image name now
+  carries the version once, for example
+  `immortalwrt-naoki66-<date>-<repo>-<upstream>-airoha-an7581-gemtek_xr1710g-...`,
+  instead of repeating `<date>-<repo>-<upstream>` three times.
+- Releases now upload every file listed in `sha256sums`, including the package
+  `.manifest` and `profiles.json`, so checksum verification no longer refers to
+  missing files.
+- Release notes are now generated from the actual build: device, firmware file
+  name and its SHA-256, repository commit, upstream commit and flashing steps
+  are filled in automatically, and the manually supplied notes are added under
+  a "Changes in this build" heading. This prevents notes that contradict the
+  build, such as claiming that no firmware was built.
+
 ## 2026-09-14
 
 ### Upstream sync
