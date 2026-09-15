@@ -109,6 +109,8 @@ jobs:
           path: |
             build.log
             bin/targets/airoha/an7581/*.itb
+            bin/targets/airoha/an7581/*.manifest
+            bin/targets/airoha/an7581/profiles.json
             bin/targets/airoha/an7581/config.buildinfo
             bin/targets/airoha/an7581/feeds.buildinfo
             bin/targets/airoha/an7581/version.buildinfo
@@ -121,14 +123,73 @@ jobs:
         id: release_body
         env:
           RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
+          BUILD_DATE: ${{ steps.version.outputs.date }}
+          BUILD_ID: ${{ steps.version.outputs.build_id }}
+          REPO_COMMIT: ${{ steps.version.outputs.repo_commit }}
+          UPSTREAM_COMMIT: ${{ steps.version.outputs.upstream_commit }}
         run: |
+          image_path=$(ls bin/targets/airoha/an7581/*sysupgrade*.itb 2>/dev/null | head -n1)
+          image_name=$(basename "${image_path:-unknown}")
+          image_sha=""
+          if [ -n "$image_path" ]; then
+            image_sha=$(sha256sum "$image_path" | cut -d' ' -f1)
+          fi
+
           {
-            printf '%s\n' "$RELEASE_NOTES"
+            echo "## What this is"
+            echo
+            echo "A ready-to-flash ImmortalWrt firmware image for the **Gemtek XR1710G**"
+            echo "(Airoha AN7581). It was built by GitHub Actions from this repository, so"
+            echo "you do not need to compile anything yourself."
+            echo
+            echo "## What to download"
+            echo
+            echo "| File | What it is |"
+            echo "| --- | --- |"
+            echo "| \`$image_name\` | The firmware. This is the file you flash. |"
+            echo "| \`sha256sums\` | Checksums, so you can verify the download is not corrupted. |"
+            echo "| \`*.manifest\` | The list of packages included in the firmware. |"
+            echo "| \`profiles.json\` | Device/image metadata used by tools such as the firmware selector. |"
+            echo "| \`config.buildinfo\`, \`feeds.buildinfo\`, \`version.buildinfo\` | The exact build settings, feeds and version used, for reproducing this build. |"
+            echo
+            echo "## How to install"
+            echo
+            echo "1. Download the \`.itb\` file and \`sha256sums\`."
+            echo "2. Check the download: run \`sha256sum -c sha256sums --ignore-missing\` in the download folder."
+            echo "   The expected checksum of the firmware is \`${image_sha:-see sha256sums}\`."
+            echo "3. If the router already runs ImmortalWrt/OpenWrt, go to"
+            echo "   *System -> Backup / Flash Firmware -> Flash new firmware image* and upload the \`.itb\`,"
+            echo "   or run \`sysupgrade -v /tmp/$image_name\` over SSH."
+            echo "4. Do not power off the router while it is flashing. It reboots on its own when done."
+            echo
+            echo "Keep settings only when upgrading from a previous build of this same repository."
+            echo "Coming from vendor firmware or a very different build? Flash without keeping settings."
+            echo
+            echo "## Build details"
+            echo
+            echo "- Build date: \`$BUILD_DATE\` (Asia/Shanghai)"
+            echo "- Firmware version string: \`ImmortalWrt naoki66 $BUILD_ID\`"
+            echo "- This repository commit: \`$REPO_COMMIT\`"
+            echo "- ImmortalWrt upstream commit it is based on: \`$UPSTREAM_COMMIT\`"
+            echo "- The firmware in this release was really built from those commits by the"
+            echo "  *Build XR1710G Firmware* workflow; it is not a notes-only release."
+            echo
+            if [ -n "${RELEASE_NOTES//[[:space:]]/}" ]; then
+              echo "## Changes in this build"
+              echo
+              printf '%s\n' "$RELEASE_NOTES"
+              echo
+            fi
+            echo "## Warning"
+            echo
+            echo "This is community firmware for a specific device. Flashing the wrong file can"
+            echo "make the router unusable, and recovery may need a serial console. Use it only if"
+            echo "you are comfortable with that risk."
           } > /tmp/release_body.md
           {
-            echo "body<<EOF"
+            echo "body<<RELEASE_BODY_EOF"
             cat /tmp/release_body.md
-            echo "EOF"
+            echo "RELEASE_BODY_EOF"
           } >> $GITHUB_OUTPUT
 
       - name: Create Release
@@ -142,6 +203,8 @@ jobs:
           prerelease: ${{ github.event.inputs.release_type == 'prerelease' }}
           files: |
             bin/targets/airoha/an7581/*.itb
+            bin/targets/airoha/an7581/*.manifest
+            bin/targets/airoha/an7581/profiles.json
             bin/targets/airoha/an7581/config.buildinfo
             bin/targets/airoha/an7581/feeds.buildinfo
             bin/targets/airoha/an7581/version.buildinfo

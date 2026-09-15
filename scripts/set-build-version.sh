@@ -37,7 +37,10 @@ upstream_commit="${upstream_commit:-unknown}"
 build_id="${BUILD_ID:-${build_date}-${repo_commit}-${upstream_commit}}"
 version_number="${VERSION_NUMBER:-${build_id}}"
 version_code="${VERSION_CODE:-${repo_commit}-${upstream_commit}}"
-extra_image_name="${EXTRA_IMAGE_NAME:-${build_id}}"
+# The build ID is already carried by CONFIG_VERSION_NUMBER, which ends up in the
+# image file name. Leave the extra image name empty by default so the file name
+# does not repeat the same build ID several times.
+extra_image_name="${EXTRA_IMAGE_NAME:-}"
 
 escape_config_string() {
 	printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
@@ -58,6 +61,10 @@ sed -e '/^CONFIG_IMAGEOPT=/d' \
 	-e '/^# CONFIG_VERSION_NUMBER is not set$/d' \
 	-e '/^CONFIG_VERSION_CODE=/d' \
 	-e '/^# CONFIG_VERSION_CODE is not set$/d' \
+	-e '/^CONFIG_VERSION_FILENAMES=/d' \
+	-e '/^# CONFIG_VERSION_FILENAMES is not set$/d' \
+	-e '/^CONFIG_VERSION_CODE_FILENAMES=/d' \
+	-e '/^# CONFIG_VERSION_CODE_FILENAMES is not set$/d' \
 	"$config_file" > "$tmp_file"
 
 cat >> "$tmp_file" <<EOF
@@ -67,6 +74,8 @@ CONFIG_VERSIONOPT=y
 CONFIG_VERSION_DIST="$(escape_config_string "$version_dist")"
 CONFIG_VERSION_NUMBER="$(escape_config_string "$version_number")"
 CONFIG_VERSION_CODE="$(escape_config_string "$version_code")"
+CONFIG_VERSION_FILENAMES=y
+# CONFIG_VERSION_CODE_FILENAMES is not set
 EOF
 
 mv "$tmp_file" "$config_file"
@@ -74,4 +83,4 @@ trap - EXIT
 
 echo "Configured firmware version: ${version_dist} ${version_number}"
 echo "Configured firmware revision: ${version_code}"
-echo "Configured firmware image suffix: ${extra_image_name}"
+echo "Configured firmware image suffix: ${extra_image_name:-<none>}"
