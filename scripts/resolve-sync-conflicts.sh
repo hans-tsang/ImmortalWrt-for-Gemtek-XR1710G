@@ -11,6 +11,12 @@
 #                 that actually conflict are resolved in favour of the local
 #                 build configuration; non-conflicting upstream additions such
 #                 as newly introduced packages are kept.
+#
+# On top of that, every file that scripts/enforce-no-chinese.sh deletes here
+# (Chinese translation catalogues and locale directories) comes back as a
+# modify/delete conflict as soon as upstream touches it.  Those deletions are
+# re-applied automatically, because re-adding the file would only make the
+# no-Chinese check fail in the next step.
 
 set -euo pipefail
 
@@ -48,5 +54,30 @@ merge_hunks_preferring_ours() {
   git add -- "$path"
 }
 
+# A conflicting path that no longer exists on our side was removed on purpose
+# by the no-Chinese policy.  Upstream keeps editing those files (translation
+# catalogues in particular), which produces a modify/delete conflict on every
+# sync.  Keep the deletion whenever the upstream version still carries Chinese
+# text, so the resolution can never re-introduce content that the following
+# enforcement step would reject anyway.
+keep_policy_deletions() {
+  local path
+
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+
+    # Stage 2 present means our side still has the file, so this is a content
+    # conflict that needs a real decision rather than a deletion.
+    git show ":2:$path" > /dev/null 2>&1 && continue
+
+    if git show ":3:$path" 2>/dev/null |
+       LC_ALL=C.UTF-8 grep -q -P '[\x{3000}-\x{303f}\x{3400}-\x{4dbf}\x{4e00}-\x{9fff}\x{ff01}-\x{ff60}]'; then
+      echo "Keeping local deletion of Chinese file: $path"
+      git rm -q -f -- "$path"
+    fi
+  done < <(git diff --name-only --diff-filter=U)
+}
+
 take_ours README.md
+keep_policy_deletions
 merge_hunks_preferring_ours config.seed

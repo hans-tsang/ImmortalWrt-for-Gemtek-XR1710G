@@ -40,13 +40,24 @@ enforce_english_readme() {
 # kernel patches are attribution metadata and must not be rewritten, so the
 # patch directories are excluded from the scan.
 scan_for_chinese_characters() {
-  local matches
+  local matches status
 
   command -v git >/dev/null 2>&1 || return 0
   git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
 
-  matches="$(git grep -I -n -P '[\x{3000}-\x{303f}\x{3400}-\x{4dbf}\x{4e00}-\x{9fff}\x{ff01}-\x{ff60}]' -- \
-    ':!target/linux/*/patches-*' ':!*/patches/*' ':!feeds' || true)"
+  # The pattern only compiles in a UTF-8 locale; without it PCRE rejects the
+  # code points and the scan would silently report a clean tree.
+  set +e
+  matches="$(LC_ALL=C.UTF-8 git grep -I -n -P '[\x{3000}-\x{303f}\x{3400}-\x{4dbf}\x{4e00}-\x{9fff}\x{ff01}-\x{ff60}]' -- \
+    ':!target/linux/*/patches-*' ':!*/patches/*' ':!feeds')"
+  status=$?
+  set -e
+
+  # git grep exits 1 when nothing matched; anything above that is a real error.
+  if [ "$status" -gt 1 ]; then
+    echo "Failed to scan for Chinese characters (git grep exit $status)." >&2
+    return 1
+  fi
 
   if [ -n "$matches" ]; then
     echo "Chinese characters found in tracked files:" >&2

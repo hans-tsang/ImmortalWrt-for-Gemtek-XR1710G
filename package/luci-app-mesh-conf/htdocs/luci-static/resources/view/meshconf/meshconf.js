@@ -190,7 +190,7 @@ function info(label, value, sub) {
 }
 
 function flag(on) {
-	return E('span', { 'class': 'nm-state ' + (on ? 'estab' : 'off') }, on ? '开' : '关');
+	return E('span', { 'class': 'nm-state ' + (on ? 'estab' : 'off') }, on ? 'On' : 'Off');
 }
 
 function notify(msg, kind) {
@@ -207,7 +207,7 @@ var pageBody = null;
 function refresh() {
 	if (!pageBody) return Promise.resolve();
 	pageBody.innerHTML = '';
-	pageBody.appendChild(E('div', { 'class': 'nm-empty' }, '加载中…'));
+	pageBody.appendChild(E('div', { 'class': 'nm-empty' }, 'Loading…'));
 
 	return callStatus().then(function(res) {
 		statusData = res || {};
@@ -215,8 +215,8 @@ function refresh() {
 	}, function(e) {
 		pageBody.innerHTML = '';
 		pageBody.appendChild(E('div', { 'class': 'nm-banner bad' }, [
-			E('strong', {}, '无法读取状态'),
-			E('div', {}, e.message || 'rpcd 插件没有响应（luci.meshconf）。')
+			E('strong', {}, 'Cannot read status'),
+			E('div', {}, e.message || 'The rpcd plugin did not respond (luci.meshconf).')
 		]));
 	});
 }
@@ -241,14 +241,14 @@ function withButton(btn, busyLabel, fn) {
 	return fn().then(function(res) {
 		done();
 		if (!res || res.success === false) {
-			notify((res && res.error) || '操作失败', 'danger');
+			notify((res && res.error) || 'Operation failed', 'danger');
 			return res;
 		}
-		notify('已应用，无线配置正在重新加载（约几秒）。', 'success');
+		notify('Applied. The wireless configuration is reloading (takes a few seconds).', 'success');
 		return refresh();
 	}, function(e) {
 		done();
-		notify(e.message || '操作失败', 'danger');
+		notify(e.message || 'Operation failed', 'danger');
 	});
 }
 
@@ -257,23 +257,23 @@ function withButton(btn, busyLabel, fn) {
  * ------------------------------------------------------------------------- */
 function meshPill() {
 	var m = statusData.mesh || {};
-	if (!m.enabled) return pill('', '无线 Mesh：未启用');
-	if (m.state === 'up') return pill('ok', '无线 Mesh：已连接 ' + (m.peers || 0) + ' 个对端');
-	if (m.state === 'waiting') return pill('warn', '无线 Mesh：等待对端');
-	return pill('warn', '无线 Mesh：已启用但未起来');
+	if (!m.enabled) return pill('', 'Wireless mesh: disabled');
+	if (m.state === 'up') return pill('ok', 'Wireless mesh: connected to ' + (m.peers || 0) + ' peers');
+	if (m.state === 'waiting') return pill('warn', 'Wireless mesh: waiting for peers');
+	return pill('warn', 'Wireless mesh: enabled but not up');
 }
 
 function roamPill() {
 	var r = statusData.roaming || {};
-	if (!r.enabled) return pill('', '漫游：未开启');
-	return pill('ok', '漫游：已开启 ' + (r.ap_ready || 0) + '/' + (r.ap_total || 0) + ' 个 SSID');
+	if (!r.enabled) return pill('', 'Roaming: disabled');
+	return pill('ok', 'Roaming: enabled on ' + (r.ap_ready || 0) + '/' + (r.ap_total || 0) + ' SSIDs');
 }
 
 function syncPill() {
 	var s = statusData.sync || {};
-	if (!s.enabled) return pill('', '有线同步：未启用');
-	if (!s.running) return pill('warn', '有线同步：服务未运行');
-	return pill('ok', '有线同步：端口 ' + (s.port || '7761'));
+	if (!s.enabled) return pill('', 'Wired sync: disabled');
+	if (!s.running) return pill('warn', 'Wired sync: service not running');
+	return pill('ok', 'Wired sync: port ' + (s.port || '7761'));
 }
 
 function renderStatus() {
@@ -283,18 +283,18 @@ function renderStatus() {
 
 	return E('div', { 'class': 'nm-section' }, [
 		E('div', { 'class': 'nm-title' }, [
-			E('span', {}, '本机状态'),
+			E('span', {}, 'Local status'),
 			E('span', { 'class': 'nm-muted' }, l.hostname || '')
 		]),
 		E('div', { 'class': 'nm-status', 'style': 'margin-top:var(--ds-sp-3)' }, [
 			meshPill(), roamPill(), syncPill()
 		]),
 		E('div', { 'class': 'nm-infogrid' }, [
-			info('型号', l.model || '-'),
+			info('Model', l.model || '-'),
 			info('LAN IP', l.lan_ip || '-', l.mac || ''),
-			info('无线配置版本', E('span', { 'class': 'nm-mono' }, l.wifirev || '-'), '用于比较两台设备是否一致'),
-			info('Mesh 接口', m.iface || '-', m.state === 'up' ? '对端 ' + m.peers + ' 个' : (m.enabled ? '尚未建立链路' : '未配置')),
-			info('同步密钥', s.key_set ? '已设置' : '未设置', s.last_peer ? '最近对端 ' + s.last_peer : '尚未同步过')
+			info('Wireless config revision', E('span', { 'class': 'nm-mono' }, l.wifirev || '-'), 'Used to check whether two devices carry the same wireless settings'),
+			info('Mesh interface', m.iface || '-', m.state === 'up' ? m.peers + ' peers' : (m.enabled ? 'No link established yet' : 'Not configured')),
+			info('Sync key', s.key_set ? 'Set' : 'Not set', s.last_peer ? 'Last peer ' + s.last_peer : 'Never synced')
 		])
 	]);
 }
@@ -311,20 +311,20 @@ function renderMesh() {
 	});
 
 	var radioSel = select(radios.map(function(r) {
-		var label = r.name + '（' + (r.band || '?') + '，信道 ' + (r.channel || 'auto') + '）';
-		if (!r.mesh_capable) label += ' · 不支持 mesh';
+		var label = r.name + ' (' + (r.band || '?') + ', channel ' + (r.channel || 'auto') + ')';
+		if (!r.mesh_capable) label += ' · no mesh support';
 		return { value: r.name, label: label, disabled: !r.mesh_capable };
 	}), m.radio || (radios.length ? radios[0].name : ''));
 
 	var meshIdInput = textInput(m.mesh_id || 'XR1710G-Mesh');
 	var encSel = select([
-		{ value: 'sae', label: 'SAE（推荐）' },
-		{ value: 'none', label: '不加密' }
+		{ value: 'sae', label: 'SAE (recommended)' },
+		{ value: 'none', label: 'No encryption' }
 	], m.encryption || 'sae', function() {
 		keyField.style.display = (encSel.value === 'sae') ? '' : 'none';
 	});
-	var keyInput = textInput(m.key_set ? '' : '', { type: 'password', placeholder: m.key_set ? '留空表示不修改' : '至少 8 位' });
-	var keyField = field('Mesh 密钥', keyInput);
+	var keyInput = textInput(m.key_set ? '' : '', { type: 'password', placeholder: m.key_set ? 'Leave empty to keep the current key' : 'At least 8 characters' });
+	var keyField = field('Mesh key', keyInput);
 	keyField.style.display = (m.encryption === 'none') ? 'none' : '';
 
 	var bridgeBox = checkbox(m.bridge_lan !== false, function() {});
@@ -336,17 +336,17 @@ function renderMesh() {
 	}
 	toggleMeshFields(!!m.enabled);
 
-	var saveBtn = E('button', { 'class': 'cbi-button cbi-button-apply' }, '保存并应用');
+	var saveBtn = E('button', { 'class': 'cbi-button cbi-button-apply' }, 'Save and apply');
 	saveBtn.addEventListener('click', function() {
 		if (enabledBox.checked && !radioSel.value) {
-			notify('请选择一个支持 mesh 的 radio。', 'danger');
+			notify('Select a radio that supports mesh.', 'danger');
 			return;
 		}
 		if (enabledBox.checked && !meshIdInput.value.trim()) {
-			notify('请填写 Mesh ID，两台设备必须一致。', 'danger');
+			notify('Enter a Mesh ID; it must be identical on both devices.', 'danger');
 			return;
 		}
-		withButton(saveBtn, '应用中…', function() {
+		withButton(saveBtn, 'Applying…', function() {
 			return callApplyMesh(
 				enabledBox.checked ? '1' : '0',
 				radioSel.value,
@@ -358,10 +358,10 @@ function renderMesh() {
 		});
 	});
 
-	var stopBtn = E('button', { 'class': 'cbi-button cbi-button-reset' }, '停用 802.11s');
+	var stopBtn = E('button', { 'class': 'cbi-button cbi-button-reset' }, 'Disable 802.11s');
 	stopBtn.disabled = !m.enabled;
 	stopBtn.addEventListener('click', function() {
-		withButton(stopBtn, '停用中…', function() {
+		withButton(stopBtn, 'Disabling…', function() {
 			return callApplyMesh('0', radioSel.value, meshIdInput.value.trim(), encSel.value, '', '1');
 		});
 	});
@@ -369,33 +369,33 @@ function renderMesh() {
 	var warn = '';
 	if (!m.wpad_mesh) {
 		warn = E('div', { 'class': 'nm-banner' }, [
-			E('strong', {}, 'wpad 可能不支持 mesh'),
-			E('div', {}, '802.11s 需要带 mesh 支持的 hostapd（wpad-mesh-* 或 wpad-openssl）。当前检测到 /usr/sbin/hostapd 里没有 mesh 相关特性，接口可能起不来。')
+			E('strong', {}, 'wpad may not support mesh'),
+			E('div', {}, '802.11s needs a hostapd build with mesh support (wpad-mesh-* or wpad-openssl). No mesh features were detected in /usr/sbin/hostapd, so the interface may fail to come up.')
 		]);
 	} else if (m.enabled && m.state === 'down') {
 		warn = E('div', { 'class': 'nm-banner' }, [
-			E('strong', {}, 'Mesh 接口没有起来'),
-			E('div', {}, '请确认两台设备的 Mesh ID、加密方式与密钥完全一致，且所选 radio 已启用。')
+			E('strong', {}, 'Mesh interface did not come up'),
+			E('div', {}, 'Make sure both devices use exactly the same Mesh ID, encryption and key, and that the selected radio is enabled.')
 		]);
 	}
 
 	return E('div', { 'class': 'nm-section' }, [
 		E('div', { 'class': 'nm-title' }, [
-			E('span', {}, '无线 Mesh（802.11s）'),
-			E('span', { 'class': 'nm-muted' }, m.enabled ? (m.state === 'up' ? '已连接' : '已配置') : '未启用')
+			E('span', {}, 'Wireless mesh (802.11s)'),
+			E('span', { 'class': 'nm-muted' }, m.enabled ? (m.state === 'up' ? 'Connected' : 'Configured') : 'Disabled')
 		]),
-		E('p', { 'class': 'nm-subtitle' }, '在选定的 radio 上建立 802.11s mesh 接口并桥接到 LAN，两台设备即处于同一二层网络。原生 802.11s，不需要 batman-adv。'),
+		E('p', { 'class': 'nm-subtitle' }, 'Bring up an 802.11s mesh interface on the selected radio and bridge it into the LAN, so both devices share one layer 2 network. Native 802.11s, no batman-adv required.'),
 		E('div', { 'class': 'nm-form' }, [
-			E('div', { 'class': 'nm-field wide' }, [ inlineField('启用 802.11s mesh', enabledBox) ]),
-			field('无线电', radioSel),
+			E('div', { 'class': 'nm-field wide' }, [ inlineField('Enable 802.11s mesh', enabledBox) ]),
+			field('Radio', radioSel),
 			field('Mesh ID', meshIdInput),
-			field('加密', encSel),
+			field('Encryption', encSel),
 			keyField,
-			E('div', { 'class': 'nm-field wide' }, [ inlineField('桥接到 LAN（两台设备同一二层）', bridgeBox) ])
+			E('div', { 'class': 'nm-field wide' }, [ inlineField('Bridge to LAN (both devices on the same layer 2)', bridgeBox) ])
 		]),
 		warn,
 		E('div', { 'class': 'nm-actions' }, [ saveBtn, stopBtn ]),
-		E('p', { 'class': 'nm-hint' }, '保存后会重新加载无线，已连接的终端会短暂断开。')
+		E('p', { 'class': 'nm-hint' }, 'Saving reloads the wireless stack, so connected clients drop briefly.')
 	]);
 }
 
@@ -406,20 +406,20 @@ function peerRow(p) {
 	var selfRev = (statusData.local || {}).wifirev;
 	var same = p.wifirev && p.wifirev === selfRev;
 	var keep = (statusData.sync || {}).keep_channel !== false;
-	var chNote = keep ? '（本机 channel 会保留）' : '（channel 会一起被覆盖）';
+	var chNote = keep ? ' (the local channel is kept)' : ' (the channel is overwritten as well)';
 
-	var pullBtn = E('button', { 'class': 'cbi-button cbi-button-action' }, '拉取到本地');
+	var pullBtn = E('button', { 'class': 'cbi-button cbi-button-action' }, 'Pull to this device');
 	pullBtn.addEventListener('click', function() {
-		if (!confirm('将用 ' + p.ip + ' 的无线配置覆盖本机' + chNote + '（当前配置会备份到 /etc/config/wireless.meshconf-bak），继续？')) return;
-		withButton(pullBtn, '拉取中…', function() {
+		if (!confirm('This overwrites the local wireless configuration with the one from ' + p.ip + chNote + '. The current configuration is backed up to /etc/config/wireless.meshconf-bak. Continue?')) return;
+		withButton(pullBtn, 'Pulling…', function() {
 			return callSyncPeer(p.ip, 'pull');
 		});
 	});
 
-	var pushBtn = E('button', { 'class': 'cbi-button cbi-button-apply' }, '推送到对端');
+	var pushBtn = E('button', { 'class': 'cbi-button cbi-button-apply' }, 'Push to peer');
 	pushBtn.addEventListener('click', function() {
-		if (!confirm('将用本机的无线配置覆盖 ' + p.ip + '（对端按自身设置决定是否保留 channel），继续？')) return;
-		withButton(pushBtn, '推送中…', function() {
+		if (!confirm('This overwrites the wireless configuration on ' + p.ip + ' with the local one. The peer decides on its own whether to keep its channel. Continue?')) return;
+		withButton(pushBtn, 'Pushing…', function() {
 			return callSyncPeer(p.ip, 'push');
 		});
 	});
@@ -432,10 +432,10 @@ function peerRow(p) {
 		E('td', { 'class': 'nowrap' }, E('span', { 'class': 'nm-mono' }, p.ip)),
 		E('td', { 'class': 'nowrap' }, [
 			E('span', { 'class': 'nm-mono' }, p.wifirev || '-'),
-			same ? E('span', { 'class': 'nm-state estab', 'style': 'margin-left:var(--ds-sp-1)' }, '与本机一致') : ''
+			same ? E('span', { 'class': 'nm-state estab', 'style': 'margin-left:var(--ds-sp-1)' }, 'Matches this device') : ''
 		]),
 		E('td', {}, flag(!!p.kvr)),
-		E('td', { 'class': 'nowrap' }, p.source === 'manual' ? '手动添加' : '二层发现'),
+		E('td', { 'class': 'nowrap' }, p.source === 'manual' ? 'Added manually' : 'Layer 2 discovery'),
 		E('td', { 'class': 'nowrap' }, [ pullBtn, ' ', pushBtn ])
 	]);
 }
@@ -453,37 +453,37 @@ function renderSync() {
 	var keepBox = checkbox(s.keep_channel !== false, function() {});
 
 	var portInput = textInput(s.port || '7761', { type: 'number' });
-	var keyInput = textInput(s.key || '', { type: 'text', placeholder: '所有设备必须使用同一个密钥' });
-	var peersInput = textInput(((s.peers) || []).join(', '), { placeholder: '例如 192.168.2.1, 192.168.3.10' });
+	var keyInput = textInput(s.key || '', { type: 'text', placeholder: 'All devices must use the same key' });
+	var peersInput = textInput(((s.peers) || []).join(', '), { placeholder: 'e.g. 192.168.2.1, 192.168.3.10' });
 
-	var saveBtn = E('button', { 'class': 'cbi-button cbi-button-apply' }, '保存并应用');
+	var saveBtn = E('button', { 'class': 'cbi-button cbi-button-apply' }, 'Save and apply');
 	saveBtn.addEventListener('click', function() {
 		if (enabledBox.checked && !keyInput.value.trim()) {
-			notify('请设置共享密钥：所有设备必须一致，否则无法同步。', 'danger');
+			notify('Set a shared key: it must be identical on every device, otherwise sync cannot work.', 'danger');
 			return;
 		}
-		withButton(saveBtn, '保存中…', function() {
+		withButton(saveBtn, 'Saving…', function() {
 			return callApplySync(enabledBox.checked ? '1' : '0', portInput.value.trim(), keyInput.value.trim(), peersInput.value, keepBox.checked ? '1' : '0');
 		});
 	});
 
-	var scanBtn = E('button', { 'class': 'cbi-button cbi-button-action' }, '扫描局域网设备');
+	var scanBtn = E('button', { 'class': 'cbi-button cbi-button-action' }, 'Scan LAN devices');
 	scanBtn.addEventListener('click', function() {
 		var self = scanBtn;
 		var orig = self.textContent;
 		self.disabled = true;
-		self.textContent = '扫描中…';
+		self.textContent = 'Scanning…';
 		callScanPeers().then(function(res) {
 			self.disabled = false;
 			self.textContent = orig;
 			peerData = res || { peers: [] };
 			render();
 			var n = (peerData.peers || []).length;
-			notify(n ? '发现 ' + n + ' 台设备。' : '没有发现其他设备：确认对端已启用有线同步、密钥一致，并接在同一个局域网。', n ? 'success' : 'info');
+			notify(n ? 'Found ' + n + ' devices.' : 'No other devices found: check that the peer has wired sync enabled, uses the same key and sits on the same LAN.', n ? 'success' : 'info');
 		}, function(e) {
 			self.disabled = false;
 			self.textContent = orig;
-			notify(e.message || '扫描失败', 'danger');
+			notify(e.message || 'Scan failed', 'danger');
 		});
 	});
 
@@ -491,17 +491,17 @@ function renderSync() {
 	scanBtn.disabled = !s.enabled;
 
 	var peers = (peerData && peerData.peers) || [];
-	var table = E('div', { 'class': 'nm-empty' }, '点击"扫描局域网设备"查找同一局域网内的 XR1710G。');
+	var table = E('div', { 'class': 'nm-empty' }, 'Use "Scan LAN devices" to look for XR1710G units on the same LAN.');
 	if (peers.length) {
 		table = E('div', {}, [
 			E('table', { 'class': 'nm-table' }, [
 				E('thead', {}, E('tr', {}, [
-					E('th', {}, '设备'),
+					E('th', {}, 'Device'),
 					E('th', {}, 'IP'),
-					E('th', {}, '配置版本'),
+					E('th', {}, 'Config revision'),
 					E('th', {}, 'k/v/r'),
-					E('th', {}, '来源'),
-					E('th', {}, '同步')
+					E('th', {}, 'Source'),
+					E('th', {}, 'Sync')
 				])),
 				E('tbody', {}, peers.map(peerRow))
 			])
@@ -511,29 +511,29 @@ function renderSync() {
 	var warn = '';
 	if (s.enabled && !s.running) {
 		warn = E('div', { 'class': 'nm-banner bad' }, [
-			E('strong', {}, '同步服务没有运行'),
-			E('div', {}, '保存后服务应自动启动；若仍未运行，请检查 socat 是否已安装（跨二层发现依赖它）。')
+			E('strong', {}, 'Sync service is not running'),
+			E('div', {}, 'The service should start automatically after saving. If it stays down, check that socat is installed, since discovery depends on it.')
 		]);
 	}
 
 	return E('div', { 'class': 'nm-section' }, [
 		E('div', { 'class': 'nm-title' }, [
-			E('span', {}, '有线同步（同型号设备）'),
-			E('span', { 'class': 'nm-muted' }, s.enabled ? '已启用' : '未启用')
+			E('span', {}, 'Wired sync (identical models)'),
+			E('span', { 'class': 'nm-muted' }, s.enabled ? 'Enabled' : 'Disabled')
 		]),
-		E('p', { 'class': 'nm-subtitle' }, '设备已经接在同一个局域网时，用这一台的配置统一其它设备：周期性广播发现邻居，再凭共享密钥同步 /etc/config/wireless（含 SSID、密钥与 k/v/r 参数）。'),
+		E('p', { 'class': 'nm-subtitle' }, 'When the devices already share a LAN, use this one to align the others: neighbours are discovered by periodic broadcasts and /etc/config/wireless (SSID, key and k/v/r settings) is synced using the shared key.'),
 		E('div', { 'class': 'nm-form' }, [
-			E('div', { 'class': 'nm-field wide' }, [ inlineField('启用有线同步（同时开启被发现）', enabledBox) ]),
-			field('端口', portInput),
-			field('共享密钥', keyInput),
-			field('手动添加的设备 IP', peersInput, true),
-			E('div', { 'class': 'nm-field wide' }, [ inlineField('同步时保留本机 channel', keepBox) ]),
-			E('p', { 'class': 'nm-hint' }, '若2个AP距离较远，可选择关闭。')
+			E('div', { 'class': 'nm-field wide' }, [ inlineField('Enable wired sync (also makes this device discoverable)', enabledBox) ]),
+			field('Port', portInput),
+			field('Shared key', keyInput),
+			field('Manually added device IPs', peersInput, true),
+			E('div', { 'class': 'nm-field wide' }, [ inlineField('Keep the local channel when syncing', keepBox) ]),
+			E('p', { 'class': 'nm-hint' }, 'Consider turning this off when the two APs are far apart.')
 		]),
 		warn,
 		E('div', { 'class': 'nm-actions' }, [ saveBtn, scanBtn ]),
 		table,
-		E('p', { 'class': 'nm-hint' }, '同步会把整份 /etc/config/wireless 覆盖到对端；拉取到本地时会自动备份为 /etc/config/wireless.meshconf-bak。不在同一二层（跨三层）的设备请填在"手动添加的设备 IP"里。勾选"保留本机 channel"时，收到配置的一端会把自己每个 radio 的信道改回原值——SSID、密钥与 k/v/r 仍然同步，漫游不受影响。')
+		E('p', { 'class': 'nm-hint' }, 'Syncing overwrites the whole /etc/config/wireless on the peer. When pulling, the local file is backed up as /etc/config/wireless.meshconf-bak. Devices that are not on the same layer 2 network belong in "Manually added device IPs". With "Keep the local channel" enabled, the receiving device restores its own channel on every radio - SSID, key and k/v/r are still synced, so roaming is unaffected.')
 	]);
 }
 
@@ -544,23 +544,23 @@ function renderRoaming() {
 	var r = statusData.roaming || {};
 	var aps = statusData.aps || [];
 
-	var onBtn = E('button', { 'class': 'cbi-button cbi-button-apply' }, '开启 k/v/r');
+	var onBtn = E('button', { 'class': 'cbi-button cbi-button-apply' }, 'Enable k/v/r');
 	onBtn.addEventListener('click', function() {
-		withButton(onBtn, '开启中…', function() { return callApplyRoaming('1'); });
+		withButton(onBtn, 'Enabling…', function() { return callApplyRoaming('1'); });
 	});
 
-	var offBtn = E('button', { 'class': 'cbi-button cbi-button-reset' }, '关闭 k/v/r');
+	var offBtn = E('button', { 'class': 'cbi-button cbi-button-reset' }, 'Disable k/v/r');
 	offBtn.addEventListener('click', function() {
-		withButton(offBtn, '关闭中…', function() { return callApplyRoaming('0'); });
+		withButton(offBtn, 'Disabling…', function() { return callApplyRoaming('0'); });
 	});
 
-	var table = E('div', { 'class': 'nm-empty' }, '当前没有 AP 接口。');
+	var table = E('div', { 'class': 'nm-empty' }, 'There are no AP interfaces right now.');
 	if (aps.length) {
 		table = E('table', { 'class': 'nm-table' }, [
 			E('thead', {}, E('tr', {}, [
 				E('th', {}, 'SSID'),
-				E('th', {}, '频段'),
-				E('th', {}, '网络'),
+				E('th', {}, 'Band'),
+				E('th', {}, 'Network'),
 				E('th', {}, 'K'),
 				E('th', {}, 'V'),
 				E('th', {}, 'R'),
@@ -582,13 +582,13 @@ function renderRoaming() {
 
 	return E('div', { 'class': 'nm-section' }, [
 		E('div', { 'class': 'nm-title' }, [
-			E('span', {}, '802.11k/v/r 漫游'),
-			E('span', { 'class': 'nm-muted' }, (r.ap_ready || 0) + '/' + (r.ap_total || 0) + ' 个 SSID 已开启')
+			E('span', {}, '802.11k/v/r roaming'),
+			E('span', { 'class': 'nm-muted' }, (r.ap_ready || 0) + '/' + (r.ap_total || 0) + ' SSIDs enabled')
 		]),
-		E('p', { 'class': 'nm-subtitle' }, '给所有 AP 接口写入 802.11k（邻居报告）、802.11v（BTM 过渡）与 802.11r（快速漫游）参数。mobility domain 按网络名自动生成，同一个网络在所有设备上得到相同的 MD，客户端才能做 FT 切换。'),
+		E('p', { 'class': 'nm-subtitle' }, 'Write 802.11k (neighbour reports), 802.11v (BTM transitions) and 802.11r (fast roaming) settings to every AP interface. The mobility domain is derived from the network name, so the same network gets the same MD on all devices and clients can perform FT transitions.'),
 		E('div', { 'class': 'nm-actions', 'style': 'margin-top:0;border-top:0;padding-top:0' }, [ onBtn, offBtn ]),
 		table,
-		E('p', { 'class': 'nm-hint' }, '开启后配合"有线同步"把配置推到其它设备，整组网才会有一致的 SSID 与 MD。')
+		E('p', { 'class': 'nm-hint' }, 'After enabling this, use "Wired sync" to push the configuration to the other devices so the whole network shares one SSID and MD.')
 	]);
 }
 
@@ -599,8 +599,8 @@ return view.extend({
 		pageBody = E('div');
 
 		var root = E('div', { 'class': 'meshconf-page' }, [
-			E('h2', {}, 'Mesh 组网'),
-			E('p', { 'class': 'nm-lede' }, '两台 XR1710G 之间的组网：无线用原生 802.11s；有线则在同一局域网内互相发现，并同步 /etc/config/wireless。'),
+			E('h2', {}, 'Mesh networking'),
+			E('p', { 'class': 'nm-lede' }, 'Networking between two XR1710G units: wireless uses native 802.11s, while over the wire they discover each other on the same LAN and sync /etc/config/wireless.'),
 			pageBody
 		]);
 
