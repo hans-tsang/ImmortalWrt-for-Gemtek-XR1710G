@@ -64,6 +64,9 @@ jobs:
           ./scripts/feeds install -a
           bash scripts/fix-stale-golang-host.sh
 
+      - name: Apply feed patches
+        run: FEED_PATCHES_STRICT=1 bash scripts/apply-feed-patches.sh
+
       - name: Configure
         run: |
           bash scripts/enforce-no-chinese.sh

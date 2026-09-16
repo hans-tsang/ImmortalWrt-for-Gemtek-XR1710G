@@ -1,137 +1,129 @@
 'use strict';
-'require poll';
 'require rpc';
 'require ui';
 'require view';
 
-var callGetStatus = rpc.declare({
+var callStatus = rpc.declare({
 	object: 'luci.meshconf',
 	method: 'getStatus'
 });
 
-var callDiscoverMesh = rpc.declare({
+var callScanPeers = rpc.declare({
 	object: 'luci.meshconf',
-	method: 'discoverMesh'
+	method: 'scanPeers'
 });
 
 var callApplyMesh = rpc.declare({
 	object: 'luci.meshconf',
 	method: 'applyMesh',
-	params: [ 'backhaul', 'role', 'wired', 'wireless',
-		'mesh_radio', 'mesh_id', 'mesh_key', 'gateway', 'gw_bandwidth',
-		'slave_ip_suffix', 'unified', 'unified_ssid', 'unified_encryption', 'unified_key',
-		'ap_sync', 'ap_configs', 'channels' ]
+	params: [ 'enabled', 'radio', 'mesh_id', 'encryption', 'key', 'bridge_lan' ]
 });
 
-var callGenerateChildConfig = rpc.declare({
+var callApplyRoaming = rpc.declare({
 	object: 'luci.meshconf',
-	method: 'generateChildConfig',
-	params: [ 'ip_suffix', 'offset' ]
+	method: 'applyRoaming',
+	params: [ 'enabled' ]
 });
 
+var callApplySync = rpc.declare({
+	object: 'luci.meshconf',
+	method: 'applySync',
+	params: [ 'enabled', 'port', 'key', 'peers', 'keep_channel' ]
+});
+
+var callSyncPeer = rpc.declare({
+	object: 'luci.meshconf',
+	method: 'syncPeer',
+	params: [ 'ip', 'direction' ]
+});
+
+/* ---------------------------------------------------------------------------
+ * Shared design tokens.
+ *
+ * The canonical values live in docs/design-luci-vlan-ui.md and are mirrored in
+ * the Switch view's stylesheet (view/network/switch-vlan.css, see
+ * patches/feeds/luci/.../102-align-switch-vlan-design-tokens.patch) so that
+ * pages editing the same model read as one product.
+ *
+ * Surfaces, text and borders map onto the LuCI theme variables instead of
+ * being hardcoded: the theme owns its light/dark palette, and the previous
+ * fixed palette plus a body-background luminance probe made this page ignore
+ * it entirely. Themes that ship a dark mode also set
+ * :root[data-darkmode="true"], which is the only extra hook the accents need.
+ *
+ * Sizes are em-based, never px: the LuCI theme sets the base font size, and
+ * only a relative scale keeps the page in step with it.
+ * ------------------------------------------------------------------------- */
 var css = [
-	'.meshconf-page{--nm-bg:#fff;--nm-border:#d8dee4;--nm-soft:#f6f8fa;--nm-text:#1f2328;--nm-muted:#5c6773;--nm-blue:#0969da;--nm-green:#1a7f37;--nm-orange:#bc4c00;--nm-red:#cf222e;--nm-purple:#8250df;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:13px;line-height:1.55;color:var(--nm-text);letter-spacing:0}',
-	'.meshconf-page h2{margin:0 0 4px;font-size:21px;line-height:1.3;font-weight:650;color:var(--nm-text)}',
-	'.meshconf-page .nm-lede{margin:0 0 14px;color:var(--nm-muted);font-size:12.5px}',
-	'.nm-section{margin:0 0 18px;padding:16px 18px;border:1px solid var(--nm-border);border-radius:12px;background:var(--nm-bg);box-shadow:0 1px 2px rgba(16,24,40,.04)}',
-	'.nm-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0;font-size:15px;font-weight:650}',
-	'.nm-subtitle{margin:3px 0 14px;color:var(--nm-muted);font-size:12px}',
-	'.nm-muted{color:var(--nm-muted)}',
-	'.nm-hint{margin:10px 0 0;font-size:12px;line-height:1.6;color:var(--nm-muted)}',
-	'.nm-alert{margin:10px 0 0;padding:9px 12px;border-radius:8px;border:1px solid rgba(188,76,0,.35);background:rgba(188,76,0,.07);color:var(--nm-orange);font-size:12px;line-height:1.6}',
-	'.nm-alert.ok{border-color:rgba(26,127,55,.35);background:rgba(26,127,55,.08);color:var(--nm-green)}',
-	'.nm-alert.hidden{display:none}',
+	'.meshconf-page{--ds-surface:var(--background-color-high,#fff);--ds-surface-sunken:var(--background-color-medium,#f6f8fa);--ds-border:var(--border-color-low,#d8dee4);--ds-text:var(--text-color-high,#1f2328);--ds-text-muted:var(--text-color-low,#5c6773);--ds-primary:var(--primary-color-high,#0969da);--ds-ok:#1a7f37;--ds-ok-tint:rgba(26,127,55,.08);--ds-ok-line:rgba(26,127,55,.35);--ds-warn:#bc4c00;--ds-warn-tint:rgba(188,76,0,.08);--ds-warn-line:rgba(188,76,0,.35);--ds-error:#cf222e;--ds-error-tint:rgba(207,34,46,.08);--ds-error-line:rgba(207,34,46,.40);--ds-info:#0969da;--ds-info-tint:rgba(9,105,218,.08);--ds-info-line:rgba(9,105,218,.35);--ds-focus-ring:rgba(9,105,218,.32);--ds-r-sm:4px;--ds-r-md:6px;--ds-r-lg:8px;--ds-r-pill:999px;--ds-sp-1:.25em;--ds-sp-2:.5em;--ds-sp-3:.75em;--ds-sp-4:1em;--ds-sp-5:1.5em;--ds-fs-xs:.8em;--ds-fs-sm:.88em;--ds-fs-base:1em;--ds-fs-lg:1.1em;--ds-fs-2xl:1.6em;--ds-shadow-1:0 1px 2px rgba(16,24,40,.04);line-height:1.5;color:var(--ds-text)}',
+	'.meshconf-page :focus-visible{outline:2px solid var(--ds-primary);outline-offset:2px}',
+	'.meshconf-page h2{margin:0 0 var(--ds-sp-1);font-size:var(--ds-fs-2xl);line-height:1.3;font-weight:650;color:var(--ds-text)}',
+	'.meshconf-page .nm-lede{margin:0 0 var(--ds-sp-4);color:var(--ds-text-muted);font-size:var(--ds-fs-sm)}',
+	'.nm-section{margin:0 0 var(--ds-sp-5);padding:var(--ds-sp-4) var(--ds-sp-5);border:1px solid var(--ds-border);border-radius:var(--ds-r-lg);background:var(--ds-surface);box-shadow:var(--ds-shadow-1)}',
+	'.nm-title{display:flex;align-items:center;justify-content:space-between;gap:var(--ds-sp-3);margin:0;font-size:var(--ds-fs-lg);font-weight:650}',
+	'.nm-title .nm-muted{font-size:var(--ds-fs-sm);font-weight:400}',
+	'.nm-subtitle{margin:var(--ds-sp-1) 0 var(--ds-sp-4);color:var(--ds-text-muted);font-size:var(--ds-fs-sm)}',
+	'.nm-muted{color:var(--ds-text-muted)}',
+	'.nm-hint{margin:var(--ds-sp-3) 0 0;font-size:var(--ds-fs-sm);line-height:1.6;color:var(--ds-text-muted)}',
 	'',
-	'.nm-status{display:flex;gap:8px;flex-wrap:wrap;align-items:center}',
-	'.nm-pill{display:inline-flex;align-items:center;height:25px;padding:0 10px;border-radius:999px;border:1px solid var(--nm-border);background:var(--nm-soft);font-size:12px;font-weight:600;white-space:nowrap}',
-	'.nm-pill.ok{color:var(--nm-green);border-color:rgba(26,127,55,.35);background:rgba(26,127,55,.08)}',
-	'.nm-pill.warn{color:var(--nm-orange);border-color:rgba(188,76,0,.35);background:rgba(188,76,0,.08)}',
-	'.nm-pill.info{color:var(--nm-blue);border-color:rgba(9,105,218,.35);background:rgba(9,105,218,.08)}',
-	'.nm-pill .dot{width:6px;height:6px;border-radius:50%;background:currentColor;margin-right:6px;opacity:.85}',
-	'.nm-infogrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:8px;margin-top:12px}',
-	'.nm-info{border:1px solid var(--nm-border);border-radius:10px;background:var(--nm-soft);padding:9px 11px;min-width:0}',
-	'.nm-info-label{font-size:11px;font-weight:650;color:var(--nm-muted);margin-bottom:3px}',
-	'.nm-info-value{font-size:14px;font-weight:650;word-break:break-all;line-height:1.35}',
-	'.nm-info-sub{font-size:11px;color:var(--nm-muted);margin-top:2px;word-break:break-all}',
+	/* status pills */
+	'.nm-status{display:flex;gap:var(--ds-sp-2);flex-wrap:wrap;align-items:center}',
+	'.nm-pill{display:inline-flex;align-items:center;min-height:25px;padding:0 var(--ds-sp-3);border:1px solid var(--ds-border);border-radius:var(--ds-r-pill);background:var(--ds-surface-sunken);font-size:var(--ds-fs-sm);font-weight:600;white-space:nowrap}',
+	'.nm-pill.ok{color:var(--ds-ok);border-color:var(--ds-ok-line);background:var(--ds-ok-tint)}',
+	'.nm-pill.warn{color:var(--ds-warn);border-color:var(--ds-warn-line);background:var(--ds-warn-tint)}',
+	'.nm-pill.info{color:var(--ds-info);border-color:var(--ds-info-line);background:var(--ds-info-tint)}',
+	'.nm-pill .dot{width:6px;height:6px;border-radius:50%;background:currentColor;margin-right:var(--ds-sp-2);opacity:.85}',
+	'.nm-infogrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:var(--ds-sp-2);margin-top:var(--ds-sp-3)}',
+	'.nm-info{border:1px solid var(--ds-border);border-radius:var(--ds-r-md);background:var(--ds-surface-sunken);padding:var(--ds-sp-2) var(--ds-sp-3);min-width:0}',
+	'.nm-info-label{font-size:var(--ds-fs-xs);font-weight:650;color:var(--ds-text-muted);margin-bottom:var(--ds-sp-1)}',
+	'.nm-info-value{font-size:var(--ds-fs-lg);font-weight:650;word-break:break-all;line-height:1.35}',
+	'.nm-info-sub{font-size:var(--ds-fs-xs);color:var(--ds-text-muted);margin-top:2px;word-break:break-all}',
 	'',
-	'.nm-group{margin-top:18px;padding-top:16px;border-top:1px dashed var(--nm-border)}',
-	'.nm-group.first{border-top:0;padding-top:0;margin-top:4px}',
-	'.nm-group-head{display:flex;align-items:center;gap:8px;margin:0 0 3px;font-size:13px;font-weight:650}',
-	'.nm-step{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--nm-blue);color:#fff;font-size:11px;font-weight:700;flex:0 0 auto}',
-	'.nm-group-desc{margin:0 0 12px;padding-left:28px;color:var(--nm-muted);font-size:12px;line-height:1.6}',
-	'.nm-group.hidden{display:none}',
-	'.nm-field.hidden{display:none}',
-	'',
-	'.nm-choices{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}',
-	'.nm-choices.two{grid-template-columns:repeat(2,minmax(0,1fr))}',
-	'.nm-choice{position:relative;display:block;border:1px solid var(--nm-border);border-radius:10px;background:var(--nm-soft);padding:12px 14px;cursor:pointer;transition:border-color .18s,box-shadow .18s,background .18s}',
-	'.nm-choice input{position:absolute;width:1px;height:1px;opacity:0;margin:0}',
-	'.nm-choice:hover{border-color:rgba(9,105,218,.45)}',
-	'.nm-choice.active{border-color:var(--nm-blue);background:rgba(9,105,218,.06);box-shadow:0 0 0 1px var(--nm-blue)}',
-	'.nm-choice:focus-within{outline:2px solid var(--nm-blue);outline-offset:2px}',
-	'.nm-choice-title{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:650}',
-	'.nm-choice-desc{display:block;margin-top:4px;color:var(--nm-muted);font-size:12px;line-height:1.5}',
-	'.nm-choice-dot{width:8px;height:8px;border-radius:50%;background:var(--nm-border);flex:0 0 auto}',
-	'.nm-choice.active .nm-choice-dot{background:var(--nm-blue)}',
-	'',
-	'.nm-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:12px}',
-	'.nm-field{display:flex;flex-direction:column;gap:5px;min-width:0}',
-	'.nm-field>label{font-size:12px;font-weight:600;color:var(--nm-muted)}',
-	'.nm-field input,.nm-field select{min-height:36px;border:1px solid var(--nm-border);border-radius:8px;padding:7px 10px;background:var(--nm-bg);color:var(--nm-text);font-size:13px;box-sizing:border-box;width:100%;font-family:inherit}',
-	'.nm-field input:focus,.nm-field select:focus{outline:none;border-color:var(--nm-blue);box-shadow:0 0 0 3px rgba(9,105,218,.15)}',
+	/* form fields */
+	'.nm-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:var(--ds-sp-3);margin-top:var(--ds-sp-3)}',
+	'.nm-field{display:flex;flex-direction:column;gap:var(--ds-sp-1);min-width:0}',
+	'.nm-field>label{font-size:var(--ds-fs-sm);font-weight:600;color:var(--ds-text-muted)}',
+	'.nm-field input,.nm-field select{min-height:34px;border:1px solid var(--ds-border);border-radius:var(--ds-r-sm);padding:var(--ds-sp-1) var(--ds-sp-2);background:var(--ds-surface);color:var(--ds-text);font-size:var(--ds-fs-base);box-sizing:border-box;width:100%;font-family:inherit}',
+	'.nm-field input:focus,.nm-field select:focus{border-color:var(--ds-primary);box-shadow:0 0 0 3px var(--ds-focus-ring)}',
+	'.nm-field input:focus-visible,.nm-field select:focus-visible{outline:2px solid var(--ds-primary);outline-offset:1px}',
 	'.nm-field input:disabled,.nm-field select:disabled{opacity:.55;cursor:not-allowed}',
 	'.nm-field.wide{grid-column:1 / -1}',
-	'.nm-field.inline{flex-direction:row;align-items:center;gap:8px;min-height:36px}',
-	'.nm-field.inline>label{font-size:13px;font-weight:400;color:var(--nm-text);cursor:pointer;display:inline-flex;align-items:center;gap:7px}',
-	'.nm-field.inline input[type=checkbox]{width:15px;height:15px;min-height:0;margin:0}',
-	'.nm-radio-line{display:flex;gap:18px;flex-wrap:wrap;min-height:36px;align-items:center}',
-	'.nm-radio-line label{display:inline-flex;gap:7px;align-items:center;font-weight:400;color:var(--nm-text);font-size:13px;cursor:pointer}',
-	'.nm-radio-line input{margin:0}',
+	'.nm-field.inline{flex-direction:row;align-items:center;gap:var(--ds-sp-2);min-height:34px}',
+	'.nm-field.inline>label{font-size:var(--ds-fs-base);font-weight:400;color:var(--ds-text);cursor:pointer;display:inline-flex;align-items:center;gap:var(--ds-sp-2)}',
+	'.nm-field.inline input[type=checkbox]{width:16px;height:16px;min-height:0;margin:0;accent-color:var(--ds-primary)}',
 	'',
-	'.nm-ap-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px;margin-top:12px}',
-	'.nm-ap-radio{border:1px solid var(--nm-border);border-radius:10px;padding:11px 12px;background:var(--nm-soft)}',
-	'.nm-ap-radio-title{display:flex;align-items:center;justify-content:space-between;gap:8px;font-weight:650;font-size:13px}',
-	'.nm-band{display:inline-flex;align-items:center;height:19px;padding:0 7px;border-radius:5px;font-size:11px;font-weight:650;background:rgba(9,105,218,.10);color:var(--nm-blue)}',
-	'.nm-ap-radio-meta{margin:2px 0 9px;color:var(--nm-muted);font-size:11.5px;word-break:break-all}',
-	'.nm-ap-radio .nm-form{margin-top:0;grid-template-columns:1fr 1fr;gap:9px}',
-	'.nm-ap-radio .nm-field.wide{grid-column:1 / -1}',
+	/* action rows */
+	'.nm-actions{display:flex;gap:var(--ds-sp-2);flex-wrap:wrap;margin-top:var(--ds-sp-4);padding-top:var(--ds-sp-3);border-top:1px solid var(--ds-border)}',
+	'.nm-actions .cbi-button{min-height:34px}',
 	'',
-	'.nm-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--nm-border)}',
-	'.nm-actions .cbi-button{min-height:36px}',
+	/* peer / AP tables */
+	'.nm-table{width:100%;border-collapse:collapse;margin-top:var(--ds-sp-3);font-size:var(--ds-fs-sm)}',
+	'.nm-table th,.nm-table td{border:1px solid var(--ds-border);padding:var(--ds-sp-1) var(--ds-sp-2);text-align:left;vertical-align:top;word-break:break-all}',
+	'.nm-table th{background:var(--ds-surface-sunken);font-weight:650;color:var(--ds-text-muted);white-space:nowrap}',
+	'.nm-table td.nowrap{white-space:nowrap}',
+	'.nm-table .nm-mono,.nm-table .nm-state{font-size:.95em}',
+	'.nm-mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:var(--ds-fs-xs)}',
+	'.nm-state{display:inline-flex;align-items:center;min-height:19px;padding:0 var(--ds-sp-2);border-radius:var(--ds-r-sm);font-size:var(--ds-fs-xs);font-weight:650;background:var(--ds-surface-sunken);color:var(--ds-text-muted)}',
+	'.nm-state.estab{background:var(--ds-ok-tint);color:var(--ds-ok)}',
+	'.nm-state.off{background:var(--ds-error-tint);color:var(--ds-error)}',
 	'',
-	'.nm-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(116px,1fr));gap:8px;margin:12px 0}',
-	'.nm-stat{border:1px solid var(--nm-border);border-radius:10px;background:var(--nm-soft);padding:9px 12px}',
-	'.nm-stat-value{font-size:19px;font-weight:700;line-height:1.25;color:var(--nm-text)}',
-	'.nm-stat-label{font-size:11px;color:var(--nm-muted)}',
-	'.nm-topology{width:100%;box-sizing:border-box;margin:0 auto;border:1px solid var(--nm-border);border-radius:12px;background:var(--nm-soft);overflow:hidden}',
-	'.nm-topology svg{display:block;width:100%;height:auto}',
-	'.nm-legend{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin:10px 0 0;font-size:12px;color:var(--nm-muted)}',
-	'.nm-legend i{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:5px;margin-right:6px;vertical-align:-3px;color:#fff;font-size:10px;font-weight:700;font-style:normal}',
-	'.nm-legend .k-local{background:#0969da}.nm-legend .k-mesh{background:rgba(130,80,223,.9)}.nm-legend .k-lan{background:rgba(26,127,55,.9)}',
-	'.nm-empty{display:flex;flex-direction:column;justify-content:center;min-height:380px;box-sizing:border-box;padding:38px 20px;text-align:center;color:var(--nm-muted)}',
-	'.nm-empty strong{display:block;color:var(--nm-text);font-size:14px;margin-bottom:5px}',
-	'.nm-config-preview{width:100%;min-height:180px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;white-space:pre;box-sizing:border-box}',
+	/* banners */
+	'.nm-banner{display:flex;gap:var(--ds-sp-2);align-items:flex-start;margin:var(--ds-sp-3) 0 0;padding:var(--ds-sp-2) var(--ds-sp-3);border:1px solid var(--ds-warn-line);border-radius:var(--ds-r-md);background:var(--ds-warn-tint);color:var(--ds-warn);font-size:var(--ds-fs-sm);line-height:1.6}',
+	'.nm-banner.bad{border-color:var(--ds-error-line);background:var(--ds-error-tint);color:var(--ds-error)}',
+	'.nm-banner.info{border-color:var(--ds-info-line);background:var(--ds-info-tint);color:var(--ds-info)}',
+	'.nm-banner strong{display:block;margin-bottom:2px}',
+	'.nm-banner.hidden{display:none}',
+	'.nm-empty{display:flex;flex-direction:column;justify-content:center;min-height:90px;box-sizing:border-box;padding:var(--ds-sp-4);text-align:center;color:var(--ds-text-muted);border:1px dashed var(--ds-border);border-radius:var(--ds-r-md);margin-top:var(--ds-sp-3)}',
 	'',
-	'.nm-t-card{fill:var(--nm-bg);stroke:var(--nm-border);stroke-width:1}',
-	'.nm-t-card.local{fill:rgba(9,105,218,.10);stroke:#0969da;stroke-width:2}',
-	'.nm-t-card.mesh{fill:rgba(130,80,223,.09);stroke:rgba(130,80,223,.5)}',
-	'.nm-t-card.lan{fill:rgba(26,127,55,.09);stroke:rgba(26,127,55,.45)}',
-	'.nm-t-badge.local{fill:#0969da}',
-	'.nm-t-badge.mesh{fill:rgba(130,80,223,.9)}',
-	'.nm-t-badge.lan{fill:rgba(26,127,55,.9)}',
-	'.nm-t-glyph{font-size:14px;font-weight:700;fill:#fff;text-anchor:middle;font-style:normal}',
-	'.nm-t-title{font-size:13px;font-weight:650;fill:var(--nm-text)}',
-	'.nm-t-sub{font-size:10.5px;fill:var(--nm-muted)}',
-	'.nm-t-tag{font-size:9.5px;font-weight:650;fill:var(--nm-muted)}',
-	'.nm-t-col{font-size:12px;font-weight:650;fill:var(--nm-muted);letter-spacing:.04em}',
-	'.nm-t-link{fill:none;stroke:rgba(26,127,55,.55);stroke-width:2}',
-	'.nm-t-link.mesh{stroke:rgba(130,80,223,.6);stroke-width:2;stroke-dasharray:6 4}',
-	'.nm-t-lq{font-size:9px;fill:var(--nm-muted)}',
-	'@media(max-width:900px){.nm-choices{grid-template-columns:1fr}.nm-choices.two{grid-template-columns:1fr}}',
-	'@media(max-width:760px){.nm-form,.nm-ap-radio .nm-form{grid-template-columns:1fr}}'
+	/* One breakpoint, the same one the Switch view uses. */
+	'@media(max-width:720px){.nm-title{flex-direction:column;align-items:flex-start;gap:var(--ds-sp-1)}}'
 ].join('\n');
 
-var darkVars = ':root{--nm-bg:#1e1f22;--nm-border:#3a3d42;--nm-soft:#26282d;--nm-text:#f0f3f6;--nm-muted:#a7adb5;--nm-blue:#4d9cf6;--nm-green:#4ac26b;--nm-orange:#e3934a;--nm-red:#f47067;--nm-purple:#a98bf5}.nm-t-card.local{fill:rgba(77,156,246,.16);stroke:#4d9cf6}.nm-t-card.mesh{fill:rgba(169,139,245,.14);stroke:rgba(169,139,245,.6)}.nm-t-card.lan{fill:rgba(74,194,107,.13);stroke:rgba(74,194,107,.5)}.nm-t-link{stroke:rgba(74,194,107,.6)}.nm-t-link.mesh{stroke:rgba(169,139,245,.7)}.nm-t-badge.local{fill:#4d9cf6}.nm-t-badge.mesh{fill:rgba(169,139,245,.95)}.nm-t-badge.lan{fill:rgba(74,194,107,.95)}';
+/* Dark accents. LuCI themes that ship a dark mode set this attribute on :root;
+ * surfaces and text already follow the theme variables, so only the semantic
+ * accents have to be re-tuned for a dark background - and the tints get a
+ * higher alpha, since a .08 wash is invisible on a dark surface. */
+var darkVars = ':root[data-darkmode="true"]{--ds-ok:#4ac26b;--ds-ok-tint:rgba(74,194,107,.18);--ds-ok-line:rgba(74,194,107,.45);--ds-warn:#e3934a;--ds-warn-tint:rgba(227,147,74,.18);--ds-warn-line:rgba(227,147,74,.45);--ds-error:#f47067;--ds-error-tint:rgba(244,112,103,.18);--ds-error-line:rgba(244,112,103,.5);--ds-info:#4d9cf6;--ds-info-tint:rgba(77,156,246,.18);--ds-info-line:rgba(77,156,246,.45);--ds-focus-ring:rgba(77,156,246,.45);--ds-shadow-1:none}';
 
 function injectCSS() {
 	var el = document.getElementById('meshconf-css');
@@ -140,966 +132,480 @@ function injectCSS() {
 		el.id = 'meshconf-css';
 		document.head.appendChild(el);
 	}
-	var bg = window.getComputedStyle(document.body).backgroundColor;
-	var nums = bg.match(/\d+/g) || [];
-	var dark = nums.length >= 3 && ((+nums[0] * 299 + +nums[1] * 587 + +nums[2] * 114) / 1000) < 128;
-	el.textContent = css + (dark ? darkVars : '');
+	el.textContent = css + '\n' + darkVars;
 }
 
-function textLimit(s, n) {
-	s = String(s || '');
-	return s.length > n ? s.substr(0, n - 1) + '…' : s;
+/* ---------------------------------------------------------------------------
+ * tiny DOM helpers
+ * ------------------------------------------------------------------------- */
+function checkbox(checked, onchange) {
+	var el = E('input', { type: 'checkbox' });
+	el.checked = !!checked;
+	if (onchange) el.addEventListener('change', onchange);
+	return el;
 }
 
-function esc(s) {
-	return String(s == null ? '' : s)
-		.replace(/&/g, '&amp;').replace(/</g, '&lt;')
-		.replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-		.replace(/'/g, '&#39;');
+function textInput(value, opts) {
+	opts = opts || {};
+	var el = E('input', { type: opts.type || 'text', placeholder: opts.placeholder || '' });
+	el.value = (value === null || value === undefined) ? '' : String(value);
+	if (opts.onchange) el.addEventListener('change', opts.onchange);
+	return el;
 }
 
-var BAND_LABELS = {
-	'2g': _('2.4G radio'),
-	'5g': _('5G radio'),
-	'6g': _('6G radio')
-};
-
-function bandLabel(band) {
-	return BAND_LABELS[band] || null;
-}
-
-function radioTitle(config) {
-	return bandLabel(config.band) || config.radio || _('Wireless radio');
-}
-
-// Roaming happens between nodes on the same band, so radios of different
-// bands may advertise different SSIDs (e.g. separate 2.4G / 5G / 6G names).
-// Only multiple enabled radios inside one band must share SSID / encryption
-// / key.
-//
-// Preferred non-overlapping channels per band, shared with the backend:
-// child node N picks entry ((N-master) mod length) for each band, so APs on
-// the same band never share a channel. 2.4G/5G/6G are different bands and do
-// not need to differ from each other on the same node.
-var CHANNEL_SPREAD = {
-	'2g': [ '1', '6', '11', '2', '7', '12', '3', '8', '13' ],
-	'5g': [ '36', '149', '44', '153', '52', '157', '60', '161', '100', '165' ],
-	'6g': [ '37', '5', '69', '101', '133', '165', '197', '229' ]
-};
-
-function channelList(band, current) {
-	var list;
-	if (band === '2g')
-		list = [ '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13' ];
-	else if (band === '5g')
-		list = [ '36', '40', '44', '48', '52', '56', '60', '64', '100', '104', '108', '112',
-			'116', '120', '124', '128', '132', '136', '140', '144', '149', '153', '157', '161', '165' ];
-	else if (band === '6g')
-		list = [ '1', '5', '9', '13', '17', '21', '25', '29', '33', '37', '41', '45', '49', '53',
-			'57', '61', '65', '69', '73', '77', '81', '85', '89', '93', '97', '101', '105', '109',
-			'113', '117', '121', '125', '129', '133', '137', '141', '145', '149', '153', '157',
-			'161', '165', '169', '173', '177', '181', '185', '189', '193', '197', '201', '205',
-			'209', '213', '217', '221', '225', '229', '233' ];
-	else
-		list = [];
-	if (current && current !== 'auto' && list.indexOf(current) < 0)
-		list.unshift(current);
-	return list;
-}
-
-var ENCRYPTIONS = [
-	[ 'sae-mixed', _('WPA2/WPA3 mixed') ],
-	[ 'psk2', _('WPA2-PSK') ],
-	[ 'sae', _('WPA3-SAE') ],
-	[ 'psk-mixed', _('WPA/WPA2 mixed') ],
-	[ 'owe', _('OWE enhanced open') ],
-	[ 'none', _('Open network (no password)') ]
-];
-
-function encryptionSelect(value) {
-	var sel = E('select', {}, ENCRYPTIONS.map(function(item) {
-		return E('option', { 'value': item[0] }, item[1]);
-	}));
-	sel.value = value || 'sae-mixed';
-	return sel;
-}
-
-function dedupeNodes(nodes) {
-	var map = {}, out = [];
-	(nodes || []).forEach(function(n) {
-		if (!n || !n.id || map[n.id]) return;
-		map[n.id] = n;
-		out.push(n);
+function select(options, value, onchange) {
+	var el = E('select');
+	options.forEach(function(o) {
+		var opt = E('option', { value: o.value }, o.label);
+		if (o.disabled) opt.disabled = true;
+		el.appendChild(opt);
 	});
-	return out;
+	el.value = value;
+	if (onchange) el.addEventListener('change', onchange);
+	return el;
 }
 
-function nodeMeta(n) {
-	if (n.kind === 'mesh')
-		return [ n.iface, n.tq ? 'TQ ' + n.tq : '', n.last_seen ].filter(function(x) { return x; }).join(' · ');
-	return n.ip || n.mac || '';
+function field(label, control, wide) {
+	return E('div', { 'class': 'nm-field' + (wide ? ' wide' : '') }, [
+		E('label', {}, label),
+		control
+	]);
 }
 
-var ROLE_LABELS = {
-	master: _('Master node'),
-	slave: _('Client node'),
-	peer: _('Peer node')
-};
-
-function roleLabel(role) {
-	return ROLE_LABELS[role] || _('Peer node');
+function inlineField(label, control) {
+	return E('div', { 'class': 'nm-field inline' }, [ control, E('label', {}, label) ]);
 }
 
-function modeLabel(mode) {
-	return ({
-		ap: _('AP mode'),
-		dhcp: _('DHCP router'),
-		pppoe: _('PPPoE dial-up')
-	})[mode] || _('Unknown mode');
+function pill(state, text) {
+	var el = E('span', { 'class': 'nm-pill ' + (state || '') }, [ E('i', { 'class': 'dot' }), document.createTextNode(text) ]);
+	return el;
 }
 
-function infoCard(label, value, sub) {
+function info(label, value, sub) {
 	return E('div', { 'class': 'nm-info' }, [
 		E('div', { 'class': 'nm-info-label' }, label),
-		E('div', { 'class': 'nm-info-value' }, value || '—'),
+		E('div', { 'class': 'nm-info-value' }, value),
 		sub ? E('div', { 'class': 'nm-info-sub' }, sub) : ''
 	]);
 }
 
-function statusPills(status) {
-	var mesh = status.mesh || {};
-	var deps = status.deps || {};
-	var depOk = deps.batctl && deps.iw && deps.wpad;
-	var isAp = status.mode === 'ap';
+function flag(on) {
+	return E('span', { 'class': 'nm-state ' + (on ? 'estab' : 'off') }, on ? 'On' : 'Off');
+}
 
-	var wanPillClass, wanPillText;
-	if (isAp) {
-		wanPillClass = '';
-		wanPillText = _('WAN bridged');
-	} else if (status.wan_up) {
-		wanPillClass = 'ok';
-		wanPillText = _('WAN connected');
-	} else if (status.wan_proto) {
-		wanPillClass = 'warn';
-		wanPillText = _('WAN disconnected');
-	} else {
-		wanPillClass = '';
-		wanPillText = _('WAN not configured');
-	}
+function notify(msg, kind) {
+	ui.addNotification(null, E('p', msg), kind || 'info');
+}
 
-	var meshPillClass, meshPillText;
-	if (!mesh.enabled) {
-		meshPillClass = '';
-		meshPillText = _('Mesh disabled');
-	} else if (mesh.up) {
-		meshPillClass = 'ok';
-		meshPillText = _('Mesh running');
-	} else {
-		meshPillClass = 'warn';
-		meshPillText = _('Mesh not running');
-	}
+/* ---------------------------------------------------------------------------
+ * page state
+ * ------------------------------------------------------------------------- */
+var statusData = null;
+var peerData = null;
+var pageBody = null;
 
-	var cards = [
-		infoCard(_('Device model'), status.board),
-		infoCard(_('Hostname'), status.hostname),
-		infoCard(_('Management address (LAN)'), status.lan_ip || _('Detecting...')),
-		isAp
-			? infoCard(_('WAN address'), _('Bridged to br-lan'))
-			: infoCard(_('WAN address'), status.wan_ip || _('Not acquired'))
-	];
-	if (mesh.enabled) {
-		cards.push(infoCard(_('Node role'), roleLabel(mesh.role)));
-		cards.push(infoCard(_('Mesh ID'), mesh.mesh_id || '-',
-			[ mesh.wired ? _('Wired backhaul') : '', mesh.wireless_count ? _('Wireless backhaul x%d').format(mesh.wireless_count) : '' ]
-				.filter(function(x) { return x; }).join(' + ')));
-	}
+function refresh() {
+	if (!pageBody) return Promise.resolve();
+	pageBody.innerHTML = '';
+	pageBody.appendChild(E('div', { 'class': 'nm-empty' }, 'Loading…'));
 
-	return E('div', {}, [
-		E('div', { 'class': 'nm-status' }, [
-			E('span', { 'class': 'nm-pill' }, modeLabel(status.mode)),
-			E('span', { 'class': 'nm-pill ' + wanPillClass }, wanPillText),
-			E('span', { 'class': 'nm-pill ' + meshPillClass }, [ E('span', { 'class': 'dot' }), meshPillText ]),
-			E('span', { 'class': 'nm-pill ' + (depOk ? 'ok' : 'warn') }, depOk ? _('Dependencies OK') : _('Missing dependencies'))
+	return callStatus().then(function(res) {
+		statusData = res || {};
+		render();
+	}, function(e) {
+		pageBody.innerHTML = '';
+		pageBody.appendChild(E('div', { 'class': 'nm-banner bad' }, [
+			E('strong', {}, 'Cannot read status'),
+			E('div', {}, e.message || 'The rpcd plugin did not respond (luci.meshconf).')
+		]));
+	});
+}
+
+function render() {
+	if (!pageBody || !statusData) return;
+	pageBody.innerHTML = '';
+	pageBody.appendChild(renderStatus());
+	pageBody.appendChild(renderMesh());
+	pageBody.appendChild(renderSync());
+	pageBody.appendChild(renderRoaming());
+}
+
+function withButton(btn, busyLabel, fn) {
+	var orig = btn.textContent;
+	btn.disabled = true;
+	btn.textContent = busyLabel;
+	var done = function() {
+		btn.disabled = false;
+		btn.textContent = orig;
+	};
+	return fn().then(function(res) {
+		done();
+		if (!res || res.success === false) {
+			notify((res && res.error) || 'Operation failed', 'danger');
+			return res;
+		}
+		notify('Applied. The wireless configuration is reloading (takes a few seconds).', 'success');
+		return refresh();
+	}, function(e) {
+		done();
+		notify(e.message || 'Operation failed', 'danger');
+	});
+}
+
+/* ---------------------------------------------------------------------------
+ * status
+ * ------------------------------------------------------------------------- */
+function meshPill() {
+	var m = statusData.mesh || {};
+	if (!m.enabled) return pill('', 'Wireless mesh: disabled');
+	if (m.state === 'up') return pill('ok', 'Wireless mesh: connected to ' + (m.peers || 0) + ' peers');
+	if (m.state === 'waiting') return pill('warn', 'Wireless mesh: waiting for peers');
+	return pill('warn', 'Wireless mesh: enabled but not up');
+}
+
+function roamPill() {
+	var r = statusData.roaming || {};
+	if (!r.enabled) return pill('', 'Roaming: disabled');
+	return pill('ok', 'Roaming: enabled on ' + (r.ap_ready || 0) + '/' + (r.ap_total || 0) + ' SSIDs');
+}
+
+function syncPill() {
+	var s = statusData.sync || {};
+	if (!s.enabled) return pill('', 'Wired sync: disabled');
+	if (!s.running) return pill('warn', 'Wired sync: service not running');
+	return pill('ok', 'Wired sync: port ' + (s.port || '7761'));
+}
+
+function renderStatus() {
+	var l = statusData.local || {};
+	var m = statusData.mesh || {};
+	var s = statusData.sync || {};
+
+	return E('div', { 'class': 'nm-section' }, [
+		E('div', { 'class': 'nm-title' }, [
+			E('span', {}, 'Local status'),
+			E('span', { 'class': 'nm-muted' }, l.hostname || '')
 		]),
-		E('div', { 'class': 'nm-infogrid' }, cards)
+		E('div', { 'class': 'nm-status', 'style': 'margin-top:var(--ds-sp-3)' }, [
+			meshPill(), roamPill(), syncPill()
+		]),
+		E('div', { 'class': 'nm-infogrid' }, [
+			info('Model', l.model || '-'),
+			info('LAN IP', l.lan_ip || '-', l.mac || ''),
+			info('Wireless config revision', E('span', { 'class': 'nm-mono' }, l.wifirev || '-'), 'Used to check whether two devices carry the same wireless settings'),
+			info('Mesh interface', m.iface || '-', m.state === 'up' ? m.peers + ' peers' : (m.enabled ? 'No link established yet' : 'Not configured')),
+			info('Sync key', s.key_set ? 'Set' : 'Not set', s.last_peer ? 'Last peer ' + s.last_peer : 'Never synced')
+		])
+	]);
+}
+
+/* ---------------------------------------------------------------------------
+ * wireless 802.11s
+ * ------------------------------------------------------------------------- */
+function renderMesh() {
+	var m = statusData.mesh || {};
+	var radios = statusData.radios || [];
+
+	var enabledBox = checkbox(m.enabled, function() {
+		toggleMeshFields(enabledBox.checked);
+	});
+
+	var radioSel = select(radios.map(function(r) {
+		var label = r.name + ' (' + (r.band || '?') + ', channel ' + (r.channel || 'auto') + ')';
+		if (!r.mesh_capable) label += ' · no mesh support';
+		return { value: r.name, label: label, disabled: !r.mesh_capable };
+	}), m.radio || (radios.length ? radios[0].name : ''));
+
+	var meshIdInput = textInput(m.mesh_id || 'XR1710G-Mesh');
+	var encSel = select([
+		{ value: 'sae', label: 'SAE (recommended)' },
+		{ value: 'none', label: 'No encryption' }
+	], m.encryption || 'sae', function() {
+		keyField.style.display = (encSel.value === 'sae') ? '' : 'none';
+	});
+	var keyInput = textInput(m.key_set ? '' : '', { type: 'password', placeholder: m.key_set ? 'Leave empty to keep the current key' : 'At least 8 characters' });
+	var keyField = field('Mesh key', keyInput);
+	keyField.style.display = (m.encryption === 'none') ? 'none' : '';
+
+	var bridgeBox = checkbox(m.bridge_lan !== false, function() {});
+
+	function toggleMeshFields(on) {
+		[ radioSel, meshIdInput, encSel, keyInput, bridgeBox ].forEach(function(el) {
+			el.disabled = !on;
+		});
+	}
+	toggleMeshFields(!!m.enabled);
+
+	var saveBtn = E('button', { 'class': 'cbi-button cbi-button-apply' }, 'Save and apply');
+	saveBtn.addEventListener('click', function() {
+		if (enabledBox.checked && !radioSel.value) {
+			notify('Select a radio that supports mesh.', 'danger');
+			return;
+		}
+		if (enabledBox.checked && !meshIdInput.value.trim()) {
+			notify('Enter a Mesh ID; it must be identical on both devices.', 'danger');
+			return;
+		}
+		withButton(saveBtn, 'Applying…', function() {
+			return callApplyMesh(
+				enabledBox.checked ? '1' : '0',
+				radioSel.value,
+				meshIdInput.value.trim(),
+				encSel.value,
+				keyInput.value,
+				bridgeBox.checked ? '1' : '0'
+			);
+		});
+	});
+
+	var stopBtn = E('button', { 'class': 'cbi-button cbi-button-reset' }, 'Disable 802.11s');
+	stopBtn.disabled = !m.enabled;
+	stopBtn.addEventListener('click', function() {
+		withButton(stopBtn, 'Disabling…', function() {
+			return callApplyMesh('0', radioSel.value, meshIdInput.value.trim(), encSel.value, '', '1');
+		});
+	});
+
+	var warn = '';
+	if (!m.wpad_mesh) {
+		warn = E('div', { 'class': 'nm-banner' }, [
+			E('strong', {}, 'wpad may not support mesh'),
+			E('div', {}, '802.11s needs a hostapd build with mesh support (wpad-mesh-* or wpad-openssl). No mesh features were detected in /usr/sbin/hostapd, so the interface may fail to come up.')
+		]);
+	} else if (m.enabled && m.state === 'down') {
+		warn = E('div', { 'class': 'nm-banner' }, [
+			E('strong', {}, 'Mesh interface did not come up'),
+			E('div', {}, 'Make sure both devices use exactly the same Mesh ID, encryption and key, and that the selected radio is enabled.')
+		]);
+	}
+
+	return E('div', { 'class': 'nm-section' }, [
+		E('div', { 'class': 'nm-title' }, [
+			E('span', {}, 'Wireless mesh (802.11s)'),
+			E('span', { 'class': 'nm-muted' }, m.enabled ? (m.state === 'up' ? 'Connected' : 'Configured') : 'Disabled')
+		]),
+		E('p', { 'class': 'nm-subtitle' }, 'Bring up an 802.11s mesh interface on the selected radio and bridge it into the LAN, so both devices share one layer 2 network. Native 802.11s, no batman-adv required.'),
+		E('div', { 'class': 'nm-form' }, [
+			E('div', { 'class': 'nm-field wide' }, [ inlineField('Enable 802.11s mesh', enabledBox) ]),
+			field('Radio', radioSel),
+			field('Mesh ID', meshIdInput),
+			field('Encryption', encSel),
+			keyField,
+			E('div', { 'class': 'nm-field wide' }, [ inlineField('Bridge to LAN (both devices on the same layer 2)', bridgeBox) ])
+		]),
+		warn,
+		E('div', { 'class': 'nm-actions' }, [ saveBtn, stopBtn ]),
+		E('p', { 'class': 'nm-hint' }, 'Saving reloads the wireless stack, so connected clients drop briefly.')
+	]);
+}
+
+/* ---------------------------------------------------------------------------
+ * wired sync
+ * ------------------------------------------------------------------------- */
+function peerRow(p) {
+	var selfRev = (statusData.local || {}).wifirev;
+	var same = p.wifirev && p.wifirev === selfRev;
+	var keep = (statusData.sync || {}).keep_channel !== false;
+	var chNote = keep ? ' (the local channel is kept)' : ' (the channel is overwritten as well)';
+
+	var pullBtn = E('button', { 'class': 'cbi-button cbi-button-action' }, 'Pull to this device');
+	pullBtn.addEventListener('click', function() {
+		if (!confirm('This overwrites the local wireless configuration with the one from ' + p.ip + chNote + '. The current configuration is backed up to /etc/config/wireless.meshconf-bak. Continue?')) return;
+		withButton(pullBtn, 'Pulling…', function() {
+			return callSyncPeer(p.ip, 'pull');
+		});
+	});
+
+	var pushBtn = E('button', { 'class': 'cbi-button cbi-button-apply' }, 'Push to peer');
+	pushBtn.addEventListener('click', function() {
+		if (!confirm('This overwrites the wireless configuration on ' + p.ip + ' with the local one. The peer decides on its own whether to keep its channel. Continue?')) return;
+		withButton(pushBtn, 'Pushing…', function() {
+			return callSyncPeer(p.ip, 'push');
+		});
+	});
+
+	return E('tr', {}, [
+		E('td', {}, [
+			E('div', {}, p.hostname || '-'),
+			E('div', { 'class': 'nm-muted' }, p.model || '')
+		]),
+		E('td', { 'class': 'nowrap' }, E('span', { 'class': 'nm-mono' }, p.ip)),
+		E('td', { 'class': 'nowrap' }, [
+			E('span', { 'class': 'nm-mono' }, p.wifirev || '-'),
+			same ? E('span', { 'class': 'nm-state estab', 'style': 'margin-left:var(--ds-sp-1)' }, 'Matches this device') : ''
+		]),
+		E('td', {}, flag(!!p.kvr)),
+		E('td', { 'class': 'nowrap' }, p.source === 'manual' ? 'Added manually' : 'Layer 2 discovery'),
+		E('td', { 'class': 'nowrap' }, [ pullBtn, ' ', pushBtn ])
+	]);
+}
+
+function renderSync() {
+	var s = statusData.sync || {};
+	var enabledBox = checkbox(s.enabled, function() {
+		[ portInput, keyInput, peersInput, keepBox ].forEach(function(el) { el.disabled = !enabledBox.checked; });
+		scanBtn.disabled = !enabledBox.checked;
+	});
+
+	// Default on, including on a unit that has never been configured here:
+	// inheriting a channel chosen for somebody else's surroundings is the
+	// worse failure.
+	var keepBox = checkbox(s.keep_channel !== false, function() {});
+
+	var portInput = textInput(s.port || '7761', { type: 'number' });
+	var keyInput = textInput(s.key || '', { type: 'text', placeholder: 'All devices must use the same key' });
+	var peersInput = textInput(((s.peers) || []).join(', '), { placeholder: 'e.g. 192.168.2.1, 192.168.3.10' });
+
+	var saveBtn = E('button', { 'class': 'cbi-button cbi-button-apply' }, 'Save and apply');
+	saveBtn.addEventListener('click', function() {
+		if (enabledBox.checked && !keyInput.value.trim()) {
+			notify('Set a shared key: it must be identical on every device, otherwise sync cannot work.', 'danger');
+			return;
+		}
+		withButton(saveBtn, 'Saving…', function() {
+			return callApplySync(enabledBox.checked ? '1' : '0', portInput.value.trim(), keyInput.value.trim(), peersInput.value, keepBox.checked ? '1' : '0');
+		});
+	});
+
+	var scanBtn = E('button', { 'class': 'cbi-button cbi-button-action' }, 'Scan LAN devices');
+	scanBtn.addEventListener('click', function() {
+		var self = scanBtn;
+		var orig = self.textContent;
+		self.disabled = true;
+		self.textContent = 'Scanning…';
+		callScanPeers().then(function(res) {
+			self.disabled = false;
+			self.textContent = orig;
+			peerData = res || { peers: [] };
+			render();
+			var n = (peerData.peers || []).length;
+			notify(n ? 'Found ' + n + ' devices.' : 'No other devices found: check that the peer has wired sync enabled, uses the same key and sits on the same LAN.', n ? 'success' : 'info');
+		}, function(e) {
+			self.disabled = false;
+			self.textContent = orig;
+			notify(e.message || 'Scan failed', 'danger');
+		});
+	});
+
+	[ portInput, keyInput, peersInput, keepBox ].forEach(function(el) { el.disabled = !s.enabled; });
+	scanBtn.disabled = !s.enabled;
+
+	var peers = (peerData && peerData.peers) || [];
+	var table = E('div', { 'class': 'nm-empty' }, 'Use "Scan LAN devices" to look for XR1710G units on the same LAN.');
+	if (peers.length) {
+		table = E('div', {}, [
+			E('table', { 'class': 'nm-table' }, [
+				E('thead', {}, E('tr', {}, [
+					E('th', {}, 'Device'),
+					E('th', {}, 'IP'),
+					E('th', {}, 'Config revision'),
+					E('th', {}, 'k/v/r'),
+					E('th', {}, 'Source'),
+					E('th', {}, 'Sync')
+				])),
+				E('tbody', {}, peers.map(peerRow))
+			])
+		]);
+	}
+
+	var warn = '';
+	if (s.enabled && !s.running) {
+		warn = E('div', { 'class': 'nm-banner bad' }, [
+			E('strong', {}, 'Sync service is not running'),
+			E('div', {}, 'The service should start automatically after saving. If it stays down, check that socat is installed, since discovery depends on it.')
+		]);
+	}
+
+	return E('div', { 'class': 'nm-section' }, [
+		E('div', { 'class': 'nm-title' }, [
+			E('span', {}, 'Wired sync (identical models)'),
+			E('span', { 'class': 'nm-muted' }, s.enabled ? 'Enabled' : 'Disabled')
+		]),
+		E('p', { 'class': 'nm-subtitle' }, 'When the devices already share a LAN, use this one to align the others: neighbours are discovered by periodic broadcasts and /etc/config/wireless (SSID, key and k/v/r settings) is synced using the shared key.'),
+		E('div', { 'class': 'nm-form' }, [
+			E('div', { 'class': 'nm-field wide' }, [ inlineField('Enable wired sync (also makes this device discoverable)', enabledBox) ]),
+			field('Port', portInput),
+			field('Shared key', keyInput),
+			field('Manually added device IPs', peersInput, true),
+			E('div', { 'class': 'nm-field wide' }, [ inlineField('Keep the local channel when syncing', keepBox) ]),
+			E('p', { 'class': 'nm-hint' }, 'Consider turning this off when the two APs are far apart.')
+		]),
+		warn,
+		E('div', { 'class': 'nm-actions' }, [ saveBtn, scanBtn ]),
+		table,
+		E('p', { 'class': 'nm-hint' }, 'Syncing overwrites the whole /etc/config/wireless on the peer. When pulling, the local file is backed up as /etc/config/wireless.meshconf-bak. Devices that are not on the same layer 2 network belong in "Manually added device IPs". With "Keep the local channel" enabled, the receiving device restores its own channel on every radio - SSID, key and k/v/r are still synced, so roaming is unaffected.')
+	]);
+}
+
+/* ---------------------------------------------------------------------------
+ * 802.11k/v/r
+ * ------------------------------------------------------------------------- */
+function renderRoaming() {
+	var r = statusData.roaming || {};
+	var aps = statusData.aps || [];
+
+	var onBtn = E('button', { 'class': 'cbi-button cbi-button-apply' }, 'Enable k/v/r');
+	onBtn.addEventListener('click', function() {
+		withButton(onBtn, 'Enabling…', function() { return callApplyRoaming('1'); });
+	});
+
+	var offBtn = E('button', { 'class': 'cbi-button cbi-button-reset' }, 'Disable k/v/r');
+	offBtn.addEventListener('click', function() {
+		withButton(offBtn, 'Disabling…', function() { return callApplyRoaming('0'); });
+	});
+
+	var table = E('div', { 'class': 'nm-empty' }, 'There are no AP interfaces right now.');
+	if (aps.length) {
+		table = E('table', { 'class': 'nm-table' }, [
+			E('thead', {}, E('tr', {}, [
+				E('th', {}, 'SSID'),
+				E('th', {}, 'Band'),
+				E('th', {}, 'Network'),
+				E('th', {}, 'K'),
+				E('th', {}, 'V'),
+				E('th', {}, 'R'),
+				E('th', {}, 'MD')
+			])),
+			E('tbody', {}, aps.map(function(a) {
+				return E('tr', {}, [
+					E('td', {}, a.ssid || '-'),
+					E('td', {}, a.band || '-'),
+					E('td', {}, a.network || 'lan'),
+					E('td', {}, flag(a.k)),
+					E('td', {}, flag(a.v)),
+					E('td', {}, flag(a.r)),
+					E('td', {}, E('span', { 'class': 'nm-mono' }, a.md || '-'))
+				]);
+			}))
+		]);
+	}
+
+	return E('div', { 'class': 'nm-section' }, [
+		E('div', { 'class': 'nm-title' }, [
+			E('span', {}, '802.11k/v/r roaming'),
+			E('span', { 'class': 'nm-muted' }, (r.ap_ready || 0) + '/' + (r.ap_total || 0) + ' SSIDs enabled')
+		]),
+		E('p', { 'class': 'nm-subtitle' }, 'Write 802.11k (neighbour reports), 802.11v (BTM transitions) and 802.11r (fast roaming) settings to every AP interface. The mobility domain is derived from the network name, so the same network gets the same MD on all devices and clients can perform FT transitions.'),
+		E('div', { 'class': 'nm-actions', 'style': 'margin-top:0;border-top:0;padding-top:0' }, [ onBtn, offBtn ]),
+		table,
+		E('p', { 'class': 'nm-hint' }, 'After enabling this, use "Wired sync" to push the configuration to the other devices so the whole network shares one SSID and MD.')
 	]);
 }
 
 return view.extend({
-	load: function() {
-		return Promise.all([
-			callGetStatus().catch(function(e) { return { error: e.message || String(e) }; }),
-			callDiscoverMesh().catch(function() { return { nodes: [], links: [] }; })
-		]);
-	},
-
-	render: function(data) {
+	render: function() {
 		injectCSS();
-		this.status = data[0] || {};
-		this.discovery = data[1] || {};
 
-		var status = this.status;
-		var root = E('div', { 'class': 'cbi-map meshconf-page' }, [
-			E('h2', {}, _('Mesh Networking')),
-			E('p', { 'class': 'nm-lede' }, _('Choose the network type and node roles, configure wireless coverage per radio, then apply in one step. Keep all nodes in the same mesh consistent for automatic pairing.')),
+		pageBody = E('div');
+
+		var root = E('div', { 'class': 'meshconf-page' }, [
+			E('h2', {}, 'Mesh networking'),
+			E('p', { 'class': 'nm-lede' }, 'Networking between two XR1710G units: wireless uses native 802.11s, while over the wire they discover each other on the same LAN and sync /etc/config/wireless.'),
+			pageBody
 		]);
 
-		if (status.error)
-			root.appendChild(E('p', { 'class': 'alert-message error' }, _('Failed to read status: %s').format(status.error)));
-
-		this.statusBox = E('div', {}, statusPills(status));
-		root.appendChild(E('div', { 'class': 'nm-section' }, [
-			E('div', { 'class': 'nm-title' }, [
-				E('span', {}, _('Current status')),
-				E('button', { 'class': 'cbi-button cbi-button-neutral', 'click': ui.createHandlerFn(this, 'refresh') }, _('Refresh'))
-			]),
-			this.statusBox
-		]));
-
-		root.appendChild(this.renderMeshSection(status));
-		root.appendChild(this.renderTopologySection(status));
-
-		this.updateMeshState();
-		this.updateTopology();
-
-		// the container width is only measurable once the page is in the
-		// DOM; rebuild the canvas then and on window resize
-		window.requestAnimationFrame(L.bind(this.updateTopology, this));
-		if (!this._nmResizeBound) {
-			this._nmResizeBound = true;
-			var resizeTimer = null;
-			window.addEventListener('resize', L.bind(function() {
-				if (resizeTimer) clearTimeout(resizeTimer);
-				resizeTimer = setTimeout(L.bind(this.updateTopology, this), 150);
-			}, this));
-		}
-
-		poll.add(L.bind(function() {
-			return Promise.all([ callGetStatus(), callDiscoverMesh() ]).then(L.bind(function(res) {
-				this.status = res[0] || {};
-				this.discovery = res[1] || {};
-				if (this.statusBox) {
-					this.statusBox.innerHTML = '';
-					this.statusBox.appendChild(statusPills(this.status));
-				}
-				this.updateTopology();
-			}, this));
-		}, this), 10);
+		refresh();
 
 		return root;
-	},
-
-	renderMeshSection: function(status) {
-		var mesh = status.mesh || {};
-		var apConfigs = mesh.ap_configs || [];
-		var mode = status.mode || 'unknown';
-
-		// Only one backhaul at a time: a second parallel link is not offered,
-		// so a node is either wired or wireless. Wired wins when both are
-		// somehow configured (e.g. left over from an older build).
-		var initialBackhaul = (mesh.enabled && !mesh.wired && (mesh.wireless_count || 0) > 0)
-			? 'wireless' : 'wired';
-
-		var initialRole = mesh.enabled ? (mesh.role || 'peer') : 'master';
-
-		/* ---- step 1: backhaul (exactly one link) ---- */
-		this.backhaulCards = [
-			this.backhaulCard('wired', _('Wired networking'), _('Connect nodes by Ethernet on one subnet. This is the most stable option and recommended as the primary backhaul.'), initialBackhaul === 'wired'),
-			this.backhaulCard('wireless', _('Wireless networking'), _('802.11s wireless backhaul without cabling. Select a 5G / 6G radio for backhaul.'), initialBackhaul === 'wireless')
-		];
-
-		/* ---- step 2: master / slave role ---- */
-		this.roleCards = [
-			this.roleCard('master', _('Master node'), _('Provides DHCP and the internet gateway. Use only one per network; acts as the batman-adv gateway server.'), initialRole === 'master'),
-			this.roleCard('slave', _('Client node'), _('Disables local DHCP, stays on the master node subnet, and only bridges and extends coverage; acts as a gateway client.'), initialRole === 'slave'),
-			this.roleCard('peer', _('Peer node'), _('Does not announce a gateway. Each node chooses its own exit; suitable for pure bridging or networks with another gateway.'), initialRole === 'peer')
-		];
-
-		var currentSuffix = parseInt(String(status.lan_ip || '').split('.').pop(), 10);
-		var childSuffix = currentSuffix >= 2 && currentSuffix < 254 ? currentSuffix + 1 : 252;
-
-		this.slaveIpInput = E('input', { 'type': 'number', 'min': '2', 'max': '254', 'value': String(childSuffix) });
-		this.gwSelClassInput = E('input', { 'type': 'number', 'min': '1', 'max': '255', 'value': mesh.gw_sel_class || '20' });
-
-		/* ---- step 3: wireless backhaul ---- */
-		var backhaulCandidates = apConfigs.filter(function(c) { return c.band === '5g' || c.band === '6g'; });
-		if (!backhaulCandidates.length) backhaulCandidates = apConfigs;
-		this.meshRadioInput = E('select', {}, backhaulCandidates.map(function(c) {
-			return E('option', { 'value': c.radio }, [ radioTitle(c), ' (', c.radio, ')' ]);
-		}));
-		if (!backhaulCandidates.length)
-			this.meshRadioInput.appendChild(E('option', { 'value': '' }, _('No 5G / 6G radio found')));
-		var selectedRadio = (mesh.mesh_radios || [])[0] || '';
-		if (!selectedRadio && backhaulCandidates.length) {
-			var fiveG = backhaulCandidates.filter(function(c) { return c.band === '5g'; })[0];
-			selectedRadio = (fiveG || backhaulCandidates[0]).radio;
-		}
-		this.meshRadioInput.value = selectedRadio;
-
-		this.meshIdInput = E('input', { 'type': 'text', 'value': mesh.mesh_id || 'XR1710G-MESH', 'maxlength': '32' });
-		this.meshKeyInput = E('input', { 'type': 'password', 'value': '', 'autocomplete': 'new-password', 'placeholder': _('8-63 characters, same on all nodes') });
-
-		/* ---- step 4: per-radio coverage ---- */
-		this.apConfigInputs = apConfigs.map(L.bind(function(config) {
-			return this.buildApCard(config, mesh);
-		}, this));
-
-		this.apSyncInput = E('input', { 'type': 'checkbox' });
-		this.apSyncInput.checked = mesh.ap_sync !== false || !mesh.enabled;
-
-		this.coverageAlert = E('div', { 'class': 'nm-alert hidden' });
-
-		/* ---- assemble ---- */
-		this.wirelessGroup = E('div', { 'class': 'nm-group' }, [
-			E('div', { 'class': 'nm-group-head' }, [ E('span', { 'class': 'nm-step' }, '3'), _('Wireless backhaul link') ]),
-			E('p', { 'class': 'nm-group-desc' }, _('Select one radio for the 802.11s + SAE backhaul. This radio will still broadcast a normal AP. The Mesh ID and key must match on all nodes.')),
-			E('div', { 'class': 'nm-form' }, [
-				E('div', { 'class': 'nm-field' }, [ E('label', {}, _('Backhaul radio')), this.meshRadioInput ]),
-				E('div', { 'class': 'nm-field' }, [ E('label', {}, _('Mesh ID')), this.meshIdInput ]),
-				E('div', { 'class': 'nm-field' }, [ E('label', {}, _('Mesh key')), this.meshKeyInput ])
-			])
-		]);
-
-		this.roleFields = E('div', { 'class': 'nm-form' }, [
-			E('div', { 'class': 'nm-field' }, [ E('label', {}, _('Client node IP suffix')), this.slaveIpInput ]),
-			E('div', { 'class': 'nm-field' }, [ E('label', {}, _('Gateway selection class')), this.gwSelClassInput ])
-		]);
-
-		this.roleGroup = E('div', { 'class': 'nm-group' }, [
-			E('div', { 'class': 'nm-group-head' }, [ E('span', { 'class': 'nm-step' }, '2'), _('Node roles') ]),
-			E('p', { 'class': 'nm-group-desc' }, _('Only one master node should assign addresses on the same subnet. Client nodes disable DHCP and use the master node for address assignment.')),
-			E('div', { 'class': 'nm-choices' }, this.roleCards.map(function(c) { return c.card; })),
-			this.roleFields
-		]);
-
-		this.apCards = E('div', { 'class': 'nm-ap-grid' }, this.apConfigInputs.length
-			? this.apConfigInputs.map(function(c) { return c.view; })
-			: [ E('div', { 'class': 'nm-empty' }, _('No wireless radio found')) ]);
-
-		this.coverageGroup = E('div', { 'class': 'nm-group' }, [
-			E('div', { 'class': 'nm-group-head' }, [ E('span', { 'class': 'nm-step' }, '4'), _('Wireless coverage (SSID)') ]),
-			E('p', { 'class': 'nm-group-desc' }, _('Configure each radio: 2.4G / 5G / 6G can use separate SSIDs, such as ImmortalWrt-2.4G, -5G, and -6G. Only multiple radios in the same band must share the same SSID, encryption, and password. Channel separation across APs is handled automatically by Generate client node configuration using the node index.')),
-			E('div', { 'class': 'nm-actions', 'style': 'margin-top:0;padding-top:0;border-top:0' }, [
-				E('button', {
-					'class': 'cbi-button cbi-button-neutral',
-					'click': ui.createHandlerFn(this, 'syncCoverage')
-				}, _('Sync SSID / encryption / password across radios'))
-			]),
-			this.apCards,
-			this.coverageAlert,
-			E('p', { 'class': 'nm-hint' }, _('Leave the password empty to keep this radio\'s current key. To change passwords on multiple radios in the same band, enter the same new password on each one or roaming will not work.')),
-			E('div', { 'class': 'nm-field inline', 'style': 'margin-top:12px' }, [
-				E('label', {}, [ this.apSyncInput, _('Apply the wireless settings above to each radio (disable to keep each radio\'s current AP settings)') ])
-			])
-		]);
-
-		/* ---- wiring ---- */
-		this.roleCards.forEach(L.bind(function(c) {
-			c.input.addEventListener('change', L.bind(this.updateMeshState, this));
-		}, this));
-		this.apSyncInput.addEventListener('change', L.bind(this.updateMeshState, this));
-
-		var section = E('div', { 'class': 'nm-section' }, [
-			E('div', { 'class': 'nm-title' }, _('Mesh Networking')),
-			E('p', { 'class': 'nm-subtitle' }, _('Configure four steps: network type -> node roles -> backhaul link -> wireless coverage. Keep all nodes consistent for automatic pairing.')),
-			E('div', { 'class': 'nm-group first' }, [
-				E('div', { 'class': 'nm-group-head' }, [ E('span', { 'class': 'nm-step' }, '1'), _('Network type') ]),
-				E('p', { 'class': 'nm-group-desc' }, _('Choose either wired or wireless. Wired is stable but needs cabling; wireless avoids cabling but depends on the environment. Bridge loop avoidance is enabled to prevent loops.')),
-				E('div', { 'class': 'nm-choices two' }, this.backhaulCards.map(function(c) { return c.card; }))
-			]),
-			this.roleGroup,
-			this.wirelessGroup,
-			this.coverageGroup,
-			E('div', { 'class': 'nm-actions' }, [
-				E('button', { 'class': 'cbi-button cbi-button-apply', 'click': ui.createHandlerFn(this, 'confirmMesh') }, _('Apply Mesh')),
-				E('button', { 'class': 'cbi-button cbi-button-neutral', 'click': ui.createHandlerFn(this, 'generateChildConfig') }, _('Generate client node configuration')),
-				E('button', { 'class': 'cbi-button cbi-button-negative', 'click': ui.createHandlerFn(this, 'confirmDisableMesh') }, _('Disable Mesh'))
-			])
-		]);
-
-		return section;
-	},
-
-	renderTopologySection: function(status) {
-		this.topoStats = E('div', { 'class': 'nm-stats' }, []);
-		this.topologyBox = E('div', {}, []);
-
-		return E('div', { 'class': 'nm-section' }, [
-			E('div', { 'class': 'nm-title' }, [
-				E('span', {}, _('Mesh / LAN topology')),
-				E('span', { 'class': 'nm-muted' }, _('Automatically discovers DHCP leases and BATMAN neighbors'))
-			]),
-			E('p', { 'class': 'nm-subtitle' }, _('Refreshes every 10 seconds. Dashed lines are wireless Mesh backhaul; solid lines are wired / LAN connections.')),
-			this.topoStats,
-			this.topologyBox,
-			E('div', { 'class': 'nm-legend' }, [
-				E('span', {}, [ E('i', { 'class': 'k-local' }, _('L')), _('Local device') ]),
-				E('span', {}, [ E('i', { 'class': 'k-mesh' }, _('M')), _('Mesh neighbors') ]),
-				E('span', {}, [ E('i', { 'class': 'k-lan' }, _('C')), _('LAN clients') ])
-			])
-		]);
-	},
-
-	backhaulCard: function(value, title, desc, active) {
-		var self = this;
-		var input = E('input', { 'type': 'radio', 'name': 'nm-backhaul', 'value': value });
-		input.checked = !!active;
-		var card = E('label', { 'class': 'nm-choice' + (active ? ' active' : '') }, [
-			input,
-			E('span', { 'class': 'nm-choice-title' }, [ E('span', { 'class': 'nm-choice-dot' }), title ]),
-			E('span', { 'class': 'nm-choice-desc' }, desc)
-		]);
-		input.addEventListener('change', function() {
-			self.syncBackhaulCards();
-			self.updateMeshState();
-		});
-		return { value: value, input: input, card: card };
-	},
-
-	roleCard: function(value, title, desc, active) {
-		var input = E('input', { 'type': 'radio', 'name': 'nm-role', 'value': value });
-		input.checked = !!active;
-		var card = E('label', { 'class': 'nm-choice' + (active ? ' active' : '') }, [
-			input,
-			E('span', { 'class': 'nm-choice-title' }, [ E('span', { 'class': 'nm-choice-dot' }), title ]),
-			E('span', { 'class': 'nm-choice-desc' }, desc)
-		]);
-		return { value: value, input: input, card: card };
-	},
-
-	syncBackhaulCards: function() {
-		this.backhaulCards.forEach(function(c) {
-			c.card.classList.toggle('active', c.input.checked);
-		});
-	},
-
-	syncRoleCards: function() {
-		this.roleCards.forEach(function(c) {
-			c.card.classList.toggle('active', c.input.checked);
-		});
-	},
-
-	buildApCard: function(config) {
-		var self = this;
-		var enabled = E('input', { 'type': 'checkbox' });
-		var ssid = E('input', { 'type': 'text', 'value': config.ssid || '', 'maxlength': '32', 'placeholder': _('e.g. XR1710G') });
-		var encryption = encryptionSelect(config.encryption);
-		var key = E('input', { 'type': 'password', 'autocomplete': 'new-password' });
-		key.placeholder = config.has_key ? _('Leave empty to keep current key') : _('Enter an 8-63 character key');
-		var channel = E('select', {}, [ E('option', { 'value': 'auto' }, _('Auto')) ].concat(
-			channelList(config.band, config.channel).map(function(ch) {
-				return E('option', { 'value': ch }, ch);
-			})));
-		channel.value = config.channel || 'auto';
-		enabled.checked = config.enabled !== false;
-
-		var bandTag = bandLabel(config.band);
-
-		var view = E('div', { 'class': 'nm-ap-radio' }, [
-			E('div', { 'class': 'nm-ap-radio-title' }, [
-				E('span', {}, radioTitle(config)),
-				bandTag ? E('span', { 'class': 'nm-band' }, bandTag.replace(' radio', '')) : ''
-			]),
-			E('div', { 'class': 'nm-ap-radio-meta' }, [
-				config.radio || '',
-				config.htmode ? _(' / %s').format(config.htmode) : ''
-			]),
-			E('div', { 'class': 'nm-form' }, [
-				E('div', { 'class': 'nm-field wide' }, [ E('label', {}, _('SSID')), ssid ]),
-				E('div', { 'class': 'nm-field' }, [ E('label', {}, _('Encryption')), encryption ]),
-				E('div', { 'class': 'nm-field' }, [ E('label', {}, _('Wireless password')), key ]),
-				E('div', { 'class': 'nm-field wide' }, [ E('label', {}, _('Channel (local device)')), channel ])
-			]),
-			E('div', { 'class': 'nm-field inline', 'style': 'margin-top:9px' }, [
-				E('label', {}, [ enabled, _('Enable AP on this radio') ])
-			])
-		]);
-
-		[ ssid, encryption, key, channel, enabled ].forEach(function(el) {
-			el.addEventListener('change', L.bind(self.updateCoverage, self));
-			el.addEventListener('input', L.bind(self.updateCoverage, self));
-		});
-
-		return {
-			radio: config.radio,
-			band: config.band,
-			enabled: enabled,
-			ssid: ssid,
-			encryption: encryption,
-			key: key,
-			channel: channel,
-			view: view
-		};
-	},
-
-	backhaul: function() {
-		// set by disableMesh() for the single call that tears the mesh down
-		if (this.meshOff) return 'off';
-		var picked = this.backhaulCards.filter(function(c) { return c.input.checked; })[0];
-		return picked ? picked.value : 'wired';
-	},
-
-	role: function() {
-		var picked = this.roleCards.filter(function(c) { return c.input.checked; })[0];
-		return picked ? picked.value : 'peer';
-	},
-
-	updateMeshState: function() {
-		if (!this.backhaulCards) return;
-		this.syncBackhaulCards();
-		this.syncRoleCards();
-
-		var backhaul = this.backhaul();
-		var role = this.role();
-		var useWired = backhaul === 'wired';
-		var useWireless = backhaul === 'wireless';
-
-		this.wirelessGroup.classList.toggle('hidden', !useWireless);
-		this.meshRadioInput.disabled = !useWireless;
-		this.meshIdInput.disabled = !useWireless;
-		this.meshKeyInput.disabled = !useWireless;
-
-		// role specific fields
-		this.slaveIpInput.parentNode.parentNode.classList.toggle('hidden', role !== 'slave');
-		this.gwSelClassInput.parentNode.parentNode.classList.toggle('hidden', role !== 'slave');
-
-		// coverage is configured per radio: a disabled radio keeps its
-		// current AP settings until it is switched back on
-		this.apConfigInputs.forEach(function(config) {
-			var on = config.enabled.checked && this.apSyncInput.checked;
-			config.ssid.disabled = !on;
-			config.encryption.disabled = !on;
-			config.key.disabled = !on || config.encryption.value === 'none';
-			config.channel.disabled = !on;
-		}, this);
-
-		this.updateCoverageAlert();
-	},
-
-	updateCoverage: function() {
-		this.updateMeshState();
-	},
-
-	// Different bands may use different SSIDs; only multiple enabled radios
-	// in the SAME band must agree on SSID / encryption / key for roaming.
-	// With hard=true the channel overlap is left out: it is a warning, not a
-	// blocker.
-	coverageProblems: function(hard) {
-		var active = (this.apConfigInputs || []).filter(function(c) { return c.enabled.checked; });
-		var groups = {};
-		active.forEach(function(c) {
-			var k = c.band || '_';
-			(groups[k] = groups[k] || []).push(c);
-		});
-		var problems = [];
-
-		Object.keys(groups).forEach(function(band) {
-			var list = groups[band];
-			if (list.length < 2) return;
-			var name = (bandLabel(band) || _('Same band')).replace(' radio', '');
-			var first = list[0];
-			var ssid = (first.ssid.value || '').trim();
-			if (!list.every(function(c) { return (c.ssid.value || '').trim() === ssid; }))
-				problems.push(_('SSIDs differ between radios in the %s band').format(name));
-			if (!list.every(function(c) { return c.encryption.value === first.encryption.value; }))
-				problems.push(_('Encryption differs between radios in the %s band').format(name));
-
-			var keys = list.map(function(c) { return c.key.value || ''; });
-			if (keys.every(function(k) { return k !== ''; }) &&
-				!keys.every(function(k) { return k === keys[0]; }))
-				problems.push(_('Wireless passwords differ between radios in the %s band').format(name));
-		});
-
-		if (hard) return problems;
-
-		var seen = {};
-		active.forEach(function(c) {
-			var ch = c.channel.value;
-			if (!ch || ch === 'auto') return;
-			// only radios inside the same band can actually collide
-			var k = (c.band || '') + ':' + ch;
-			if (seen[k]) {
-				var band = bandLabel(c.band);
-				problems.push(_('A radio in the %s band reuses channel %s').format(band ? band.replace(' radio', '') : _('same band'), ch));
-			}
-			seen[k] = 1;
-		});
-
-		return problems;
-	},
-
-	updateCoverageAlert: function() {
-		if (!this.coverageAlert) return;
-		var problems = this.coverageProblems();
-
-		this.coverageAlert.innerHTML = '';
-		this.coverageAlert.classList.toggle('hidden', !problems.length);
-		if (!problems.length) return;
-
-		this.coverageAlert.appendChild(E('strong', {}, _('Current configuration does not meet roaming requirements')));
-		this.coverageAlert.appendChild(E('div', {}, problems.join('; ') + '.'));
-		this.coverageAlert.appendChild(E('div', {}, _('2.4G / 5G / 6G can use separate SSIDs. Only multiple radios in the same band must share the same SSID, encryption, and password, with different channels.')));
-	},
-
-	syncCoverage: function() {
-		var active = this.apConfigInputs.filter(function(c) { return c.enabled.checked; });
-		if (!active.length) {
-			ui.addNotification(null, E('p', _('Enable AP on at least one radio first.')));
-			return;
-		}
-		var src = active[0];
-		this.apConfigInputs.forEach(function(c) {
-			c.ssid.value = src.ssid.value;
-			c.encryption.value = src.encryption.value;
-			c.key.value = src.key.value;
-		});
-		this.apSyncInput.checked = true;
-		this.updateMeshState();
-		ui.addNotification(null, E('p', _('Synced SSID / encryption / password to all radios. Channels are unchanged.')));
-	},
-
-	collectChannels: function() {
-		return this.apConfigInputs.map(function(config) {
-			return { radio: config.radio, channel: config.channel.value };
-		});
-	},
-
-	confirmMesh: function() {
-		var backhaul = this.backhaul();
-		var role = this.role();
-		var useWired = backhaul === 'wired';
-		var useWireless = backhaul === 'wireless';
-
-		if (useWireless && !this.meshRadioInput.value) {
-			ui.addNotification(null, E('p', _('Wireless networking requires selecting a 5G / 6G radio for backhaul.')));
-			return;
-		}
-		if (useWireless && !this.meshIdInput.value.trim()) {
-			ui.addNotification(null, E('p', _('Enter a Mesh ID. It must match on all nodes in the same mesh.')));
-			return;
-		}
-		if (this.apSyncInput.checked) {
-			var missing = this.apConfigInputs.filter(function(c) {
-				return c.enabled.checked && !(c.ssid.value || '').trim();
-			});
-			if (missing.length) {
-				ui.addNotification(null, E('p', _('Enter SSID for enabled radio: %s').format(
-					missing.map(function(c) { return c.radio; }).join(', '))));
-				return;
-			}
-			var problems = this.coverageProblems(true);
-			if (problems.length) {
-				ui.addNotification(null, E('p', _('Wireless coverage does not meet roaming requirements: %s. Different bands can use separate names; only multiple radios in the same band must share the same SSID, encryption, and password.').format(problems.join('; '))));
-				return;
-			}
-		}
-
-		var wiredText = useWired
-			? _('Wired backhaul: reuses all br-lan ports. Connect any port to the peer node to form the mesh; bridge loop avoidance prevents loops.')
-			: _('Wired backhaul: disabled.');
-
-		var wirelessText = useWireless
-			? _('Wireless backhaul: creates an 802.11s + SAE link on %s with Mesh ID %s.').format(this.meshRadioInput.value, this.meshIdInput.value.trim())
-			: _('Wireless backhaul: disabled.');
-
-		var roleText = ({
-			master: _('This device is the master node: keeps DHCP and the internet gateway; batman-adv gateway role is server.'),
-			slave: _('This device is the client node: disables local DHCP, stays on the master node subnet, uses the master for address assignment, and uses gateway role client.'),
-			peer: _('This device is a peer node: does not announce a gateway; each node chooses its own exit.')
-		})[role];
-
-		return ui.showModal(_('Confirm Mesh networking changes'), [
-			E('p', {}, _('This will modify batman-adv, wireless, network, and dhcp settings and reload the network immediately.')),
-			E('div', { 'class': 'nm-alert' }, roleText),
-			E('p', {}, wiredText),
-			E('p', {}, wirelessText),
-			E('p', {}, this.apSyncInput.checked
-				? _('Wireless coverage: apply each radio\'s settings. 2.4G / 5G / 6G can use separate names, and channels are independent.')
-				: _('Wireless coverage: not applied; each radio keeps its current AP settings.')),
-			E('div', { 'class': 'right' }, [
-				E('button', { 'class': 'cbi-button cbi-button-apply', 'click': ui.createHandlerFn(this, 'applyMesh') }, _('Confirm and apply')),
-				' ',
-				E('button', { 'class': 'cbi-button cbi-button-neutral', 'click': ui.hideModal }, _('Cancel'))
-			])
-		]);
-	},
-
-	confirmDisableMesh: function() {
-		return ui.showModal(_('Confirm disabling Mesh'), [
-			E('p', {}, _('This will delete bat0, the wired Mesh hardif, and wireless 802.11s backhaul settings, then reload the network.')),
-			E('p', { 'class': 'nm-muted' }, _('Current AP settings on each radio will not be changed.')),
-			E('div', { 'class': 'right' }, [
-				E('button', { 'class': 'cbi-button cbi-button-negative', 'click': ui.createHandlerFn(this, 'disableMesh') }, _('Confirm disable')),
-				' ',
-				E('button', { 'class': 'cbi-button cbi-button-neutral', 'click': ui.hideModal }, _('Cancel'))
-			])
-		]);
-	},
-
-	applyMesh: function(syncAp) {
-		ui.hideModal();
-		var backhaul = this.backhaul();
-		this.meshOff = false;
-		var role = this.role();
-		var useWired = backhaul === 'wired';
-		var useWireless = backhaul === 'wireless';
-
-		return callApplyMesh(
-			backhaul,
-			role,
-			useWired ? '1' : '0',
-			useWireless ? '1' : '0',
-			useWireless ? (this.meshRadioInput.value || '') : '',
-			(this.meshIdInput.value || '').trim(),
-			this.meshKeyInput.value || '',
-			'', /* gateway: derived from role on the device */
-			(this.gwSelClassInput.value || '').trim(),
-			(this.slaveIpInput.value || '').trim(),
-			'0', /* unified: coverage is configured per radio */
-			'',
-			'sae-mixed',
-			'',
-			syncAp === false ? '0' : (this.apSyncInput.checked ? '1' : '0'),
-			JSON.stringify(this.apConfigInputs.map(function(config) {
-				return {
-					radio: config.radio,
-					enabled: config.enabled.checked,
-					ssid: (config.ssid.value || '').trim(),
-					encryption: config.encryption.value || 'sae-mixed',
-					key: config.key.value || ''
-				};
-			})),
-			JSON.stringify(this.collectChannels())
-		).then(L.bind(this.afterApply, this)).catch(function(e) {
-			ui.addNotification(null, E('p', e.message || _('Apply failed')));
-		});
-	},
-
-	disableMesh: function() {
-		ui.hideModal();
-		this.meshOff = true;
-		this.apSyncInput.checked = false;
-		this.updateMeshState();
-		return this.applyMesh(false);
-	},
-
-	afterApply: function(res) {
-		if (!res || !res.success) {
-			ui.addNotification(null, E('p', (res && res.error) || _('Apply failed')));
-			return;
-		}
-		var msg;
-		if (!res.backhaul)
-			msg = _('Applied.');
-		else if (res.backhaul === 'off')
-			msg = _('Mesh disabled.');
-		else
-			msg = _('Applied (%s / %s).').format(res.backhaul, roleLabel(res.role || 'peer'));
-		ui.addNotification(null, E('p', msg));
-		return this.refresh();
-	},
-
-	generateChildConfig: function() {
-		var childSuffix = parseInt((this.slaveIpInput.value || '').trim(), 10);
-		if (!childSuffix) {
-			ui.addNotification(null, E('p', _('Enter the client node IP suffix first.')));
-			return;
-		}
-		// node ordinal relative to this node: master keeps the channels it
-		// runs now (offset 0), the first child gets the next channel of each
-		// band, and so on - this is what actually spreads same-band channels
-		// across multiple APs
-		var masterSuffix = parseInt(String((this.status && this.status.lan_ip) || '').split('.').pop(), 10) || 0;
-		var offset = childSuffix - masterSuffix;
-		return callGenerateChildConfig(String(childSuffix), String(offset)).then(L.bind(function(res) {
-			if (!res || !res.success) {
-				ui.addNotification(null, E('p', (res && res.error) || _('Generation failed')));
-				return;
-			}
-			this.showGeneratedConfig(res);
-		}, this)).catch(function(e) {
-			ui.addNotification(null, E('p', e.message || _('Generation failed')));
-		});
-	},
-
-	showGeneratedConfig: function(res) {
-		var files = res.files || {};
-		var chunks = [ 'network', 'wireless', 'dhcp', 'firewall' ].map(function(name) {
-			return '### /etc/config/' + name + '\n' + (files[name] || '');
-		}).join('\n\n');
-
-		var channelLines = (res.channels || []).map(function(c) {
-			var label = bandLabel(c.band);
-			return _('%s (%s): channel %s').format(c.radio, label || c.band, c.channel);
-		});
-
-		return ui.showModal(_('Client node configuration generated'), [
-			E('p', {}, _('Import it on the client node to reuse the master node Mesh ID, SSID, and encryption. Device temporary directory: %s').format(res.path || '-')),
-			channelLines.length
-				? E('div', { 'class': 'nm-alert' }, [
-					E('strong', {}, _('Channels in the same band have been offset automatically for this client node by node index:')),
-					E('div', {}, channelLines.join('; '))
-				])
-				: '',
-			E('textarea', { 'class': 'nm-config-preview', 'readonly': 'readonly', 'wrap': 'off' }, chunks),
-			E('div', { 'class': 'right' }, [
-				E('button', { 'class': 'cbi-button cbi-button-neutral', 'click': ui.hideModal }, _('Close'))
-			])
-		]);
-	},
-
-	refresh: function() {
-		return Promise.all([ callGetStatus(), callDiscoverMesh() ]).then(L.bind(function(res) {
-			this.status = res[0] || {};
-			this.discovery = res[1] || {};
-			if (this.statusBox) {
-				this.statusBox.innerHTML = '';
-				this.statusBox.appendChild(statusPills(this.status));
-			}
-			this.updateTopology();
-		}, this));
-	},
-
-	updateTopology: function() {
-		var discovery = this.discovery || {};
-		var nodes = dedupeNodes(discovery.nodes || []);
-		var meshCount = 0, lanCount = 0;
-		nodes.forEach(function(n) {
-			if (n.kind === 'mesh') meshCount++;
-			else if (n.kind === 'lan') lanCount++;
-		});
-
-		if (this.topoStats) {
-			this.topoStats.innerHTML = '';
-			this.topoStats.appendChild(E('div', { 'class': 'nm-stat' }, [
-				E('div', { 'class': 'nm-stat-value' }, String(nodes.length)),
-				E('div', { 'class': 'nm-stat-label' }, _('Total nodes'))
-			]));
-			this.topoStats.appendChild(E('div', { 'class': 'nm-stat' }, [
-				E('div', { 'class': 'nm-stat-value' }, String(meshCount)),
-				E('div', { 'class': 'nm-stat-label' }, _('Mesh neighbors'))
-			]));
-			this.topoStats.appendChild(E('div', { 'class': 'nm-stat' }, [
-				E('div', { 'class': 'nm-stat-value' }, String(lanCount)),
-				E('div', { 'class': 'nm-stat-label' }, _('LAN clients'))
-			]));
-			var mesh = (this.status && this.status.mesh) || {};
-			this.topoStats.appendChild(E('div', { 'class': 'nm-stat' }, [
-				E('div', { 'class': 'nm-stat-value' }, mesh.up ? _('Connected') : (mesh.enabled ? _('Disconnected') : _('Disabled'))),
-				E('div', { 'class': 'nm-stat-label' }, _('Mesh status'))
-			]));
-		}
-
-		if (!this.topologyBox) return;
-		var meshState = (this.status && this.status.mesh) || {};
-		var roleText = meshState.enabled ? roleLabel(meshState.role) : _('Mesh disabled');
-		this.topologyBox.innerHTML = '';
-		this.topologyBox.appendChild(renderTopologyHTML(discovery, roleText, this.topologyBox.clientWidth || 0));
 	}
 });
-
-// Kept separate from renderTopology() above: the SVG markup is generated as a
-// string (LuCI's E() cannot namespace SVG children) and injected once.
-function renderTopologyHTML(discovery, roleText, containerW) {
-	var nodes = dedupeNodes(discovery && discovery.nodes || []);
-	var local = null, meshNodes = [], lanNodes = [];
-
-	nodes.forEach(function(n) {
-		if (n.kind === 'local') { if (!local) local = n; return; }
-		if (n.kind === 'mesh') meshNodes.push(n); else lanNodes.push(n);
-	});
-
-	var wrap = document.createElement('div');
-
-	if (!local || (!meshNodes.length && !lanNodes.length)) {
-		wrap.className = 'nm-topology';
-		wrap.innerHTML = '<div class="nm-empty"><strong>' + esc(local ? _('Local device is ready; no neighbors found yet') : _('No nodes found yet')) + '</strong>' +
-			esc(local ? _('Connect other nodes to the same subnet or Mesh ID and the topology will appear here automatically.')
-				: _('After enabling Mesh and connecting devices, backhaul links and LAN clients will be shown here.')) + '</div>';
-		return wrap;
-	}
-
-	// The canvas always fills the section width (it is aligned with the
-	// blocks above): the viewBox width tracks the container, the slack goes
-	// into the link corridor between the local node and the neighbor
-	// columns. Cards keep a fixed size and are never stretched; on narrow
-	// screens the drawing scales down as a whole. A minimum height keeps
-	// the canvas roomy for observation, and the card block is centered
-	// vertically inside it.
-	var PAD = 32, HEAD = 34, CARD_W = 236, CARD_H = 72, GAP = 16, MAX_ROWS = 10;
-	var LOCAL_W = 208, COL_GAP = 16, LINK_GAP = 96, MIN_H = 420;
-	var cols = [];
-	if (meshNodes.length) cols.push({ key: 'mesh', title: _('Mesh backhaul neighbors'), items: meshNodes, glyph: _('M'), tag: _('Mesh') });
-	if (lanNodes.length) cols.push({ key: 'lan', title: _('LAN clients'), items: lanNodes, glyph: _('C'), tag: _('LAN') });
-
-	var rows = 0;
-	cols.forEach(function(c) {
-		rows = Math.max(rows, Math.min(c.items.length, MAX_ROWS) + (c.items.length > MAX_ROWS ? 1 : 0));
-	});
-	var bodyH = rows * CARD_H + (rows - 1) * GAP + (cols.some(function(c) { return c.items.length > MAX_ROWS; }) ? 20 : 0);
-	var colsW = cols.length * CARD_W + (cols.length - 1) * COL_GAP;
-	var naturalW = PAD * 2 + LOCAL_W + LINK_GAP + colsW;
-	var W = Math.max(containerW || 0, naturalW);
-	var areaX = W - PAD - colsW;
-	if (areaX < PAD + LOCAL_W + LINK_GAP) {
-		W = naturalW;
-		areaX = PAD + LOCAL_W + LINK_GAP;
-	}
-	var contentH = PAD * 2 + HEAD + bodyH;
-	var H = Math.max(MIN_H, contentH);
-	var bodyTop = PAD + HEAD + (H - contentH) / 2;
-
-	var localX = PAD;
-	var localY = bodyTop + (rows * CARD_H + (rows - 1) * GAP - CARD_H) / 2;
-
-	var svg = [ '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(_('Network topology')) + '">' ];
-
-	cols.forEach(function(c, ci) {
-		var x = areaX + ci * (CARD_W + COL_GAP);
-		svg.push('<text class="nm-t-col" x="' + x + '" y="' + (bodyTop - 22) + '">' + esc(c.title) + '</text>');
-		c.items.slice(0, MAX_ROWS).forEach(function(n, i) {
-			var y = bodyTop + i * (CARD_H + GAP);
-			var x1 = localX + LOCAL_W, y1 = localY + CARD_H / 2;
-			var x2 = x, y2 = y + CARD_H / 2;
-			var dx = Math.max(26, (x2 - x1) * 0.45);
-			svg.push('<path class="nm-t-link ' + (c.key === 'mesh' ? 'mesh' : '') + '" d="M' + x1 + ' ' + y1 +
-				' C' + (x1 + dx) + ' ' + y1 + ', ' + (x2 - dx) + ' ' + y2 + ', ' + x2 + ' ' + y2 + '"/>');
-			if (c.key === 'mesh' && n.tq)
-				svg.push('<text class="nm-t-lq" x="' + ((x1 + x2) / 2) + '" y="' + ((y1 + y2) / 2 - 5) +
-					'" text-anchor="middle">' + esc('TQ ' + n.tq) + '</text>');
-			svg.push(nodeCard(x, y, CARD_W, CARD_H, c.key,
-				n.label || n.ip || n.mac || '', nodeMeta(n), c.tag, c.glyph));
-		});
-		if (c.items.length > MAX_ROWS)
-			svg.push('<text class="nm-t-sub" x="' + x + '" y="' +
-				(bodyTop + MAX_ROWS * (CARD_H + GAP) + 2) + '">' +
-				esc(_('...and %d more nodes').format(c.items.length - MAX_ROWS)) + '</text>');
-	});
-
-	svg.push(nodeCard(localX, localY, LOCAL_W, CARD_H, 'local',
-		local.label || _('Local device'), [ roleText, local.ip ].filter(function(x) { return x; }).join(' · '), _('Local device'), _('L')));
-	svg.push('</svg>');
-
-	wrap.className = 'nm-topology';
-	wrap.innerHTML = svg.join('');
-	return wrap;
-}
-
-function nodeCard(x, y, w, h, kind, title, sub, tag, glyph) {
-	// fixed-size text badge: it identifies the node type at a glance and
-	// keeps the text block from ever touching the card border
-	var badge = 30;
-	var bx = x + 12, by = y + (h - badge) / 2;
-	var tx = bx + badge + 12;
-
-	return '<g>' +
-		'<rect class="nm-t-card ' + kind + '" x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="10"/>' +
-		(glyph
-			? '<rect class="nm-t-badge ' + kind + '" x="' + bx + '" y="' + by + '" width="' + badge + '" height="' + badge + '" rx="9"/>' +
-			  '<text class="nm-t-glyph" x="' + (bx + badge / 2) + '" y="' + (by + badge / 2 + 5) + '">' + esc(glyph) + '</text>'
-			: '') +
-		'<text class="nm-t-title" x="' + tx + '" y="' + (y + 31) + '">' + esc(textLimit(title, 18)) + '</text>' +
-		'<text class="nm-t-sub" x="' + tx + '" y="' + (y + 50) + '">' + esc(textLimit(sub, 24)) + '</text>' +
-		(tag ? '<text class="nm-t-tag" x="' + (x + w - 10) + '" y="' + (y + 16) + '" text-anchor="end">' + esc(tag) + '</text>' : '') +
-		'</g>';
-}
