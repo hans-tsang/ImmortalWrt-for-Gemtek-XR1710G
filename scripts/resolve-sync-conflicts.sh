@@ -7,7 +7,8 @@
 #   README.md   - fully rewritten in English here and regenerated from
 #                 README.en.md by scripts/enforce-no-chinese.sh, so the local
 #                 version always wins.
-#   config.seed - shares most of its content with upstream.  Only the hunks
+#   1710.config / 2010.config
+#               - share most of their content with upstream.  Only the hunks
 #                 that actually conflict are resolved in favour of the local
 #                 build configuration; non-conflicting upstream additions such
 #                 as newly introduced packages are kept.
@@ -80,4 +81,5 @@ keep_policy_deletions() {
 
 take_ours README.md
 keep_policy_deletions
-merge_hunks_preferring_ours config.seed
+merge_hunks_preferring_ours 1710.config
+merge_hunks_preferring_ours 2010.config

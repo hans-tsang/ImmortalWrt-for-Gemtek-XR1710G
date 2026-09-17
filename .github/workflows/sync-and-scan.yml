@@ -119,7 +119,7 @@ jobs:
           ./scripts/feeds install -a
           bash scripts/fix-stale-golang-host.sh
           bash scripts/enforce-no-chinese.sh
-          cp config.seed .config
+          cp 1710.config .config
           bash scripts/set-build-version.sh .config
           make defconfig
 
