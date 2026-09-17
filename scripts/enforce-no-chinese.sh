@@ -19,7 +19,7 @@ remove_zh_locale_dirs() {
 
 disable_chinese_packages() {
   local cfg
-  for cfg in config.seed .config; do
+  for cfg in 1710.config 2010.config .config; do
     [ -f "$cfg" ] || continue
     perl -i -pe '
       s/^CONFIG_PACKAGE_default-settings-chn=y$/# CONFIG_PACKAGE_default-settings-chn is not set/g;
@@ -38,7 +38,9 @@ enforce_english_readme() {
 # Scan tracked text files for CJK ideographs and CJK/full-width punctuation.
 # Author names inside upstream
 # kernel patches are attribution metadata and must not be rewritten, so the
-# patch directories are excluded from the scan.
+# patch directories are excluded from the scan.  Imported vendor driver sources
+# (package/kernel/airoha-pon/src) carry non-UTF-8 comments from the SoC vendor
+# and are never shown in the UI, so they are skipped as well.
 scan_for_chinese_characters() {
   local matches status
 
@@ -49,7 +51,8 @@ scan_for_chinese_characters() {
   # code points and the scan would silently report a clean tree.
   set +e
   matches="$(LC_ALL=C.UTF-8 git grep -I -n -P '[\x{3000}-\x{303f}\x{3400}-\x{4dbf}\x{4e00}-\x{9fff}\x{ff01}-\x{ff60}]' -- \
-    ':!target/linux/*/patches-*' ':!*/patches/*' ':!feeds')"
+    ':!target/linux/*/patches-*' ':!*/patches/*' ':!feeds' \
+    ':!package/kernel/airoha-pon/src')"
   status=$?
   set -e
 

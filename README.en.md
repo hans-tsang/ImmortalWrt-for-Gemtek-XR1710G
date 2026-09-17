@@ -43,7 +43,7 @@ cd ImmortalWrt-for-Gemtek-XR1710G
 ./scripts/feeds install -a
 bash scripts/fix-stale-golang-host.sh
 bash scripts/enforce-no-chinese.sh
-cp config.seed .config
+cp 1710.config .config
 bash scripts/set-build-version.sh .config
 make defconfig
 make -j$(nproc) world 2>&1 | tee build.log
@@ -61,11 +61,13 @@ bash scripts/summarize-build-errors.sh build.log
 This repository enforces a no-Chinese-content policy for UI-related locale artifacts and top-level README updates during workflow runs:
 
 - Removes Chinese LuCI locale directories (`zh-cn`, `zh_Hans`, `zh_CN`, `zh-tw`, `zh_Hant`, `zh_TW`)
-- Disables `default-settings-chn` and Chinese LuCI i18n package selections in `config.seed` / `.config`
+- Disables `default-settings-chn` and Chinese LuCI i18n package selections in `1710.config` / `2010.config` / `.config`
 - Restores `README.md` from this English source file (`README.en.md`)
 - Fails if any tracked text file still contains Chinese characters
   (upstream kernel patch directories are skipped so that patch author
-  attribution is preserved)
+  attribution is preserved, and the imported Airoha PON vendor sources in
+  `package/kernel/airoha-pon/src` are skipped because they are non-UTF-8
+  vendor code that is never shown in the UI)
 
 To apply manually:
 
