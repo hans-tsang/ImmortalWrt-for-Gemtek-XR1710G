@@ -183,6 +183,20 @@ jobs:
               printf '%s\n' "$RELEASE_NOTES"
               echo
             fi
+            if [ -f docs/upstream-release-notes.md ]; then
+              echo "## Upstream release notes (English)"
+              echo
+              echo "English translations of the notes published by the upstream project"
+              echo "[naoki66/ImmortalWrt-for-Gemtek-XR1710G](https://github.com/naoki66/ImmortalWrt-for-Gemtek-XR1710G/releases),"
+              echo "which this repository is based on."
+              echo
+              echo "<details><summary>Show upstream history</summary>"
+              echo
+              sed -n '/^## /,$p' docs/upstream-release-notes.md | sed 's/^#/##/'
+              echo
+              echo "</details>"
+              echo
+            fi
             echo "## Warning"
             echo
             echo "This is community firmware for a specific device. Flashing the wrong file can"
