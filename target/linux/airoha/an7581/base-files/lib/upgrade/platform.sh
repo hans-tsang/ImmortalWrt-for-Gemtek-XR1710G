@@ -2,6 +2,21 @@ RAMFS_COPY_BIN='fitblk fit_check_sign'
 
 REQUIRE_IMAGE_METADATA=1
 
+# Boards that only exist in this fork.  They are handled in dedicated blocks
+# below instead of being added to the upstream case statements, so that new
+# upstream boards never conflict with them during an automatic sync.
+local_fit_boards() {
+	case "$1" in
+	gemtek,xg2010g-ubi|\
+	gemtek,xg2010g|\
+	gemtek,xr1710g-ubi)
+		return 0
+		;;
+	esac
+
+	return 1
+}
+
 nokia_initial_setup()
 {
 	[ "$(rootfs_type)" = "tmpfs" ] || return 0
@@ -14,14 +29,18 @@ platform_check_image() {
 
 	[ "$#" -gt 1 ] && return 1
 
+	if local_fit_boards "$board"; then
+		fit_check_image "$1"
+		return $?
+	fi
+
 	case "$board" in
 	nokia,xg-040g-md)
 		nand_do_platform_check "$board" "$1"
 		return $?
 		;;
-	gemtek,xg2010g-ubi|\
-	gemtek,xg2010g|\
-	nokia,xg-040g-md-ubi)
+	nokia,xg-040g-md-ubi|\
+	quantum,q1000k-ubi)
 		fit_check_image "$1"
 		return $?
 		;;
@@ -33,12 +52,15 @@ platform_check_image() {
 platform_do_upgrade() {
 	local board=$(board_name)
 
+	if local_fit_boards "$board"; then
+		fit_do_upgrade "$1"
+		return
+	fi
+
 	case "$board" in
-		gemtek,xg2010g-ubi|\
-		gemtek,xg2010g|\
 		gemtek,w1700k-ubi|\
-		gemtek,xr1710g-ubi|\
-		nokia,xg-040g-md-ubi)
+		nokia,xg-040g-md-ubi|\
+		quantum,q1000k-ubi)
 			fit_do_upgrade "$1"
 			;;
 		*)
