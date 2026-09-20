@@ -19,9 +19,14 @@ platform_check_image() {
 		nand_do_platform_check "$board" "$1"
 		return $?
 		;;
+<<<<<<< HEAD
 	gemtek,xg2010g-ubi|\
 	gemtek,xg2010g|\
 	nokia,xg-040g-md-ubi)
+=======
+	nokia,xg-040g-md-ubi|\
+	quantum,q1000k-ubi)
+>>>>>>> da871f345e3800bb34938805a9a5321ef62d0f18
 		fit_check_image "$1"
 		return $?
 		;;
@@ -37,8 +42,13 @@ platform_do_upgrade() {
 		gemtek,xg2010g-ubi|\
 		gemtek,xg2010g|\
 		gemtek,w1700k-ubi|\
+<<<<<<< HEAD
 		gemtek,xr1710g-ubi|\
 		nokia,xg-040g-md-ubi)
+=======
+		nokia,xg-040g-md-ubi|\
+		quantum,q1000k-ubi)
+>>>>>>> da871f345e3800bb34938805a9a5321ef62d0f18
 			fit_do_upgrade "$1"
 			;;
 		*)

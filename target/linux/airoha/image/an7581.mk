@@ -216,6 +216,7 @@ define Device/nokia_xg-040g-md-ubi
 endef
 TARGET_DEVICES += nokia_xg-040g-md-ubi
 
+<<<<<<< HEAD
 define Device/gemtek_xg2010g-ubi
   DEVICE_VENDOR := Gemtek
   DEVICE_MODEL := XG2010G
@@ -230,12 +231,31 @@ define Device/gemtek_xg2010g-ubi
   BLOCKSIZE := 128k
   PAGESIZE := 2048
   UBINIZE_OPTS := -E 5
+=======
+define Device/quantum_q1000k-ubi
+  DEVICE_VENDOR := Quantum Fiber
+  DEVICE_MODEL := Q1000K
+  DEVICE_VARIANT := UBI
+  DEVICE_ALT0_VENDOR := CenturyLink
+  DEVICE_ALT0_MODEL := Q1000K
+  DEVICE_ALT0_VARIANT := UBI
+  DEVICE_ALT1_VENDOR := Lumen
+  DEVICE_ALT1_MODEL := Q1000K
+  DEVICE_ALT1_VARIANT := UBI
+  DEVICE_DTS := an7581-q1000k
+  DEVICE_PACKAGES := fitblk nand-utils rtl826x-firmware
+  UBINIZE_OPTS := -E 5
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  UBOOTENV_IN_UBI := 1
+>>>>>>> da871f345e3800bb34938805a9a5321ef62d0f18
   KERNEL_IN_UBI := 1
   KERNEL := kernel-bin | gzip
   KERNEL_INITRAMFS := kernel-bin | lzma | \
 	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 128k
   KERNEL_INITRAMFS_SUFFIX := -recovery.itb
   IMAGES := sysupgrade.itb
+<<<<<<< HEAD
   IMAGE/sysupgrade.itb := append-kernel | \
 	fit gzip $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb external-static-with-rootfs | \
 	append-metadata
@@ -243,3 +263,13 @@ define Device/gemtek_xg2010g-ubi
   SOC := an7581
 endef
 TARGET_DEVICES += gemtek_xg2010g-ubi
+=======
+  # Match the Q1000K HTTP recovery upload buffer (256 MiB).
+  IMAGE_SIZE := 262144k
+  IMAGE/sysupgrade.itb := append-kernel | \
+	fit gzip $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb external-static-with-rootfs | \
+	append-metadata | check-size
+  SOC := an7581
+endef
+TARGET_DEVICES += quantum_q1000k-ubi
+>>>>>>> da871f345e3800bb34938805a9a5321ef62d0f18
