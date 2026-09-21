@@ -61,7 +61,13 @@ jobs:
           echo "upstream_commit=$upstream_commit" >> $GITHUB_OUTPUT
           echo "version_number=$version_number" >> $GITHUB_OUTPUT
           echo "version_code=$version_code" >> $GITHUB_OUTPUT
-          echo "Build version: ImmortalWrt naoki66 $version_number"
+          case '${{ inputs.config_seed }}' in
+            1710.config) device_model=XR1710G ;;
+            2010.config) device_model=XG2010G ;;
+            *) echo "Unsupported config seed: ${{ inputs.config_seed }}" >&2; exit 1 ;;
+          esac
+          echo "device_model=$device_model" >> $GITHUB_OUTPUT
+          echo "Build version: ImmortalWrt-for-Gemtek-brightspeed $device_model $version_number"
 
       - name: Setup build environment
         run: |
@@ -89,6 +95,7 @@ jobs:
           VERSION_CODE='${{ steps.version.outputs.version_code }}' \
           bash scripts/set-build-version.sh .config
           make defconfig
+          bash scripts/check-gemtek-profile-isolation.sh --config .config
           grep -E 'CONFIG_(IMAGEOPT|EXTRA_IMAGE_NAME|VERSIONOPT|VERSION_DIST|VERSION_NUMBER|VERSION_CODE|VERSION_FILENAMES|VERSION_CODE_FILENAMES)[= ]' .config
 
       - name: Download sources
@@ -98,6 +105,18 @@ jobs:
         shell: bash
         run: |
           make -j2 world 2>&1 | tee build.log
+
+      - name: Verify device isolation
+        shell: bash
+        run: |
+          kernel_config=$(find build_dir/target-aarch64_cortex-a53_musl/linux-airoha_an7581 -path '*/linux-*/.config' -print -quit)
+          manifest=$(find bin/targets/airoha/an7581 -maxdepth 1 -type f -name '*manifest' -print -quit)
+          test -n "$kernel_config"
+          test -n "$manifest"
+          bash scripts/check-gemtek-profile-isolation.sh \
+            --config .config \
+            --kernel-config "$kernel_config" \
+            --manifest "$manifest"
 
       - name: Check build status
         if: always()
