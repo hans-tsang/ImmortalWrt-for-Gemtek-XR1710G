@@ -1,0 +1,175 @@
+name: Build on Upstream Release
+
+# ---------------------------------------------------------------------------
+# Watches the upstream project (naoki66/ImmortalWrt-for-Gemtek-XR1710G) for new
+# releases. When a release appears that this repository has not published a
+# build for yet, the workflow:
+#   1. merges the upstream branch into this fork's master (same conflict
+#      handling as the daily sync), and
+#   2. calls the Build Firmware workflow to build and publish a release whose
+#      notes quote the upstream release notes.
+#
+# OPTIONAL repo variables (Settings -> Secrets and variables -> Actions):
+#   UPSTREAM_REPO   (defaults to naoki66/ImmortalWrt-for-Gemtek-XR1710G)
+#   UPSTREAM_BRANCH (defaults to master)
+# ---------------------------------------------------------------------------
+
+on:
+  schedule:
+    - cron: '30 */6 * * *'   # every 6 hours
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Build even when the latest upstream release was already published here
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: upstream-sync-master
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  UPSTREAM_REPO: ${{ vars.UPSTREAM_REPO || 'naoki66/ImmortalWrt-for-Gemtek-XR1710G' }}
+  UPSTREAM_BRANCH: ${{ vars.UPSTREAM_BRANCH || 'master' }}
+  TARGET_BRANCH: master
+
+jobs:
+  check-and-sync:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+      tag: ${{ steps.upstream.outputs.tag }}
+      title: ${{ steps.upstream.outputs.title }}
+      url: ${{ steps.upstream.outputs.url }}
+      body: ${{ steps.upstream.outputs.body }}
+      sha: ${{ steps.sync.outputs.sha }}
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ env.TARGET_BRANCH }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Read latest upstream release
+        id: upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! gh api "repos/${UPSTREAM_REPO}/releases/latest" > /tmp/upstream_release.json 2>/tmp/upstream_release.err; then
+            echo "::notice::Upstream has no published release yet (or the API call failed)."
+            cat /tmp/upstream_release.err || true
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          tag=$(jq -r '.tag_name // ""' /tmp/upstream_release.json)
+          title=$(jq -r '.name // ""' /tmp/upstream_release.json)
+          url=$(jq -r '.html_url // ""' /tmp/upstream_release.json)
+          jq -r '.body // ""' /tmp/upstream_release.json > /tmp/upstream_body.md
+          delimiter="UPSTREAM_BODY_EOF_${RANDOM}${RANDOM}"
+          {
+            echo "tag=$tag"
+            echo "title=$title"
+            echo "url=$url"
+            echo "body<<${delimiter}"
+            cat /tmp/upstream_body.md
+            echo "${delimiter}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Latest upstream release: ${tag:-<none>}"
+
+      - name: Check whether this release was already built here
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+          if [ -z "$UPSTREAM_TAG" ]; then
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$FORCE" = "true" ]; then
+            echo "Forced run requested."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --paginate \
+            -q '.[].body' > /tmp/own_release_bodies.txt || : > /tmp/own_release_bodies.txt
+          if grep -Fq "upstream-release: \`${UPSTREAM_TAG}\`" /tmp/own_release_bodies.txt; then
+            echo "Upstream release ${UPSTREAM_TAG} already has a build published here."
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Upstream release ${UPSTREAM_TAG} has no build here yet."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Merge upstream into master
+        id: sync
+        if: steps.check.outputs.should_build == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name "fork-sync-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git" 2>/dev/null || true
+          git remote set-url upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch upstream "${UPSTREAM_BRANCH}"
+
+          before=$(git rev-parse HEAD)
+          if git merge-base --is-ancestor "upstream/${UPSTREAM_BRANCH}" HEAD; then
+            echo "Already contains upstream/${UPSTREAM_BRANCH}."
+          else
+            if ! git merge --no-edit "upstream/${UPSTREAM_BRANCH}"; then
+              echo "Merge reported conflicts, attempting automatic resolution for local customizations."
+              bash scripts/resolve-sync-conflicts.sh
+              if git diff --name-only --diff-filter=U | grep -q .; then
+                echo "::error::Merge conflict — needs manual review."
+                git diff --name-only --diff-filter=U
+                exit 1
+              fi
+              git commit --no-edit
+            fi
+            bash scripts/enforce-no-chinese.sh
+            if ! git diff --quiet; then
+              git add -A
+              git commit -m "chore: enforce no-Chinese content policy"
+            fi
+          fi
+
+          if [ "$(git rev-parse HEAD)" != "$before" ]; then
+            pushed=false
+            for attempt in 1 2 3; do
+              if git push origin "HEAD:${TARGET_BRANCH}"; then
+                pushed=true
+                break
+              fi
+              echo "Push rejected, re-merging origin/${TARGET_BRANCH} and retrying ($attempt/3)."
+              git fetch origin "${TARGET_BRANCH}"
+              git merge --no-edit "origin/${TARGET_BRANCH}" || exit 1
+              sleep 5
+            done
+            [ "$pushed" = true ] || { echo "::error::Could not push the merge to ${TARGET_BRANCH}."; exit 1; }
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  build-and-release:
+    needs: check-and-sync
+    if: needs.check-and-sync.outputs.should_build == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/build-firmware.yml
+    with:
+      config_seed: '1710.config'
+      release_type: 'release'
+      ref: ${{ needs.check-and-sync.outputs.sha }}
+      release_notes: ${{ format('Automatic build triggered by upstream release `{0}`.', needs.check-and-sync.outputs.tag) }}
+      upstream_release_tag: ${{ needs.check-and-sync.outputs.tag }}
+      upstream_release_name: ${{ needs.check-and-sync.outputs.title }}
+      upstream_release_url: ${{ needs.check-and-sync.outputs.url }}
+      upstream_release_body: ${{ needs.check-and-sync.outputs.body }}

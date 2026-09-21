@@ -34,6 +34,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: upstream-sync-master
+  cancel-in-progress: false
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   UPSTREAM_REPO: ${{ vars.UPSTREAM_REPO || 'naoki66/ImmortalWrt-for-Gemtek-XR1710G' }}
@@ -55,8 +59,9 @@ jobs:
 
       - name: Add upstream remote and fetch
         run: |
-          git remote add upstream https://github.com/${{ env.UPSTREAM_REPO }}.git
-          git fetch upstream
+          git remote add upstream https://github.com/${{ env.UPSTREAM_REPO }}.git 2>/dev/null || true
+          git remote set-url upstream https://github.com/${{ env.UPSTREAM_REPO }}.git
+          git fetch upstream ${{ env.UPSTREAM_BRANCH }}
 
       - name: Compare HEADs
         id: diff
@@ -71,7 +76,9 @@ jobs:
         run: |
           git config user.name "fork-sync-bot"
           git config user.email "actions@users.noreply.github.com"
-          if ! git merge --no-edit upstream/${{ env.UPSTREAM_BRANCH }}; then
+          if git merge-base --is-ancestor upstream/${{ env.UPSTREAM_BRANCH }} HEAD; then
+            echo "Fork already contains upstream/${{ env.UPSTREAM_BRANCH }}."
+          elif ! git merge --no-edit upstream/${{ env.UPSTREAM_BRANCH }}; then
             echo "Merge reported conflicts, attempting automatic resolution for local customizations."
             bash scripts/resolve-sync-conflicts.sh
             if git diff --name-only --diff-filter=U | grep -q .; then
@@ -89,7 +96,18 @@ jobs:
           fi
           if [ "$(git rev-parse HEAD)" != "${{ steps.diff.outputs.local }}" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            git push origin ${{ env.TARGET_BRANCH }}
+            pushed=false
+            for attempt in 1 2 3; do
+              if git push origin HEAD:${{ env.TARGET_BRANCH }}; then
+                pushed=true
+                break
+              fi
+              echo "Push rejected, re-merging origin/${{ env.TARGET_BRANCH }} and retrying ($attempt/3)."
+              git fetch origin ${{ env.TARGET_BRANCH }}
+              git merge --no-edit origin/${{ env.TARGET_BRANCH }} || exit 1
+              sleep 5
+            done
+            [ "$pushed" = true ] || { echo "::error::Could not push the merge to ${{ env.TARGET_BRANCH }}."; exit 1; }
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
