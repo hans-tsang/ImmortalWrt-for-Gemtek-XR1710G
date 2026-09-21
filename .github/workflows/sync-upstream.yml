@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: upstream-sync-master
+  cancel-in-progress: false
+
 jobs:
   sync-upstream:
     runs-on: ubuntu-latest
@@ -69,7 +73,17 @@ jobs:
 
       - name: Push to origin
         if: steps.check.outputs.has_updates == 'true'
-        run: git push origin master
+        run: |
+          for attempt in 1 2 3; do
+            if git push origin HEAD:master; then
+              exit 0
+            fi
+            echo "Push rejected, re-merging origin/master and retrying ($attempt/3)."
+            git fetch origin master
+            git merge --no-edit origin/master || exit 1
+            sleep 5
+          done
+          exit 1
 
       - name: Show result
         if: always()

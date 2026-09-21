@@ -52,9 +52,12 @@ bash scripts/summarize-build-errors.sh build.log
 
 ## GitHub Actions Workflows
 
-- `build-firmware.yml`: manual firmware build and optional release
+- `build-firmware.yml`: manual firmware build and optional release (also reusable via `workflow_call`)
 - `sync-upstream.yml`: scheduled/manual sync from upstream ImmortalWrt
-- `sync-and-scan.yml`: sync fork, build firmware, and run EMBA scan
+- `sync-and-scan.yml`: daily sync of the fork parent, build firmware, and run EMBA scan
+- `upstream-release-build.yml`: watches upstream releases; when a new upstream release
+  appears it merges upstream, builds firmware and publishes a matching release whose
+  notes quote the upstream release notes
 
 ## No-Chinese Policy
 

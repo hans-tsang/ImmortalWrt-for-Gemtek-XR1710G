@@ -23,6 +23,47 @@ on:
       release_notes:
         description: 'Release Notes'
         required: false
+  workflow_call:
+    inputs:
+      config_seed:
+        description: 'Build config'
+        required: true
+        default: '1710.config'
+        type: string
+      release_type:
+        description: 'Release Type (none, release, prerelease)'
+        required: true
+        default: 'none'
+        type: string
+      release_notes:
+        description: 'Release Notes'
+        required: false
+        type: string
+      ref:
+        description: 'Git ref or commit to build (defaults to the calling commit)'
+        required: false
+        default: ''
+        type: string
+      upstream_release_tag:
+        description: 'Upstream release tag this build follows'
+        required: false
+        default: ''
+        type: string
+      upstream_release_name:
+        description: 'Upstream release title'
+        required: false
+        default: ''
+        type: string
+      upstream_release_url:
+        description: 'Upstream release URL'
+        required: false
+        default: ''
+        type: string
+      upstream_release_body:
+        description: 'Upstream release notes body'
+        required: false
+        default: ''
+        type: string
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -37,6 +78,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ inputs.ref }}
 
       - name: Generate build version
         id: version
@@ -152,15 +194,19 @@ jobs:
         if: always()
 
       - name: Build release body
-        if: github.event.inputs.release_type != 'none'
+        if: inputs.release_type != 'none'
         id: release_body
         env:
-          RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
           BUILD_DATE: ${{ steps.version.outputs.date }}
           CONFIG_SEED: ${{ inputs.config_seed }}
           BUILD_ID: ${{ steps.version.outputs.build_id }}
           REPO_COMMIT: ${{ steps.version.outputs.repo_commit }}
           UPSTREAM_COMMIT: ${{ steps.version.outputs.upstream_commit }}
+          UPSTREAM_RELEASE_TAG: ${{ inputs.upstream_release_tag }}
+          UPSTREAM_RELEASE_NAME: ${{ inputs.upstream_release_name }}
+          UPSTREAM_RELEASE_URL: ${{ inputs.upstream_release_url }}
+          UPSTREAM_RELEASE_BODY: ${{ inputs.upstream_release_body }}
         run: |
           case "$CONFIG_SEED" in
             2010.config) device_name="Gemtek XG2010G" ;;
@@ -219,6 +265,27 @@ jobs:
               printf '%s\n' "$RELEASE_NOTES"
               echo
             fi
+            if [ -n "$UPSTREAM_RELEASE_TAG" ]; then
+              echo "## Upstream release this build follows"
+              echo
+              echo "This build was published automatically because the upstream project"
+              echo "[naoki66/ImmortalWrt-for-Gemtek-XR1710G](https://github.com/naoki66/ImmortalWrt-for-Gemtek-XR1710G)"
+              echo "released \`$UPSTREAM_RELEASE_TAG\`${UPSTREAM_RELEASE_NAME:+ (\"$UPSTREAM_RELEASE_NAME\")}."
+              if [ -n "$UPSTREAM_RELEASE_URL" ]; then
+                echo "Upstream release page: $UPSTREAM_RELEASE_URL"
+              fi
+              echo
+              if [ -n "${UPSTREAM_RELEASE_BODY//[[:space:]]/}" ]; then
+                echo "<details><summary>Upstream release notes (original text)</summary>"
+                echo
+                printf '%s\n' "$UPSTREAM_RELEASE_BODY"
+                echo
+                echo "</details>"
+                echo
+              fi
+              echo "upstream-release: \`$UPSTREAM_RELEASE_TAG\`"
+              echo
+            fi
             if [ -f docs/upstream-release-notes.md ]; then
               echo "## Upstream release notes (English)"
               echo
@@ -239,21 +306,17 @@ jobs:
             echo "make the router unusable, and recovery may need a serial console. Use it only if"
             echo "you are comfortable with that risk."
           } > /tmp/release_body.md
-          {
-            echo "body<<RELEASE_BODY_EOF"
-            cat /tmp/release_body.md
-            echo "RELEASE_BODY_EOF"
-          } >> $GITHUB_OUTPUT
+          cat /tmp/release_body.md
 
       - name: Create Release
-        if: github.event.inputs.release_type != 'none'
+        if: inputs.release_type != 'none'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ format('{0}-{1}', steps.version.outputs.date, steps.version.outputs.repo_commit) }}
           name: ${{ format('{0} - {1} Build ({2})', steps.version.outputs.date, inputs.config_seed, steps.version.outputs.repo_commit) }}
-          body: ${{ steps.release_body.outputs.body }}
+          body_path: /tmp/release_body.md
           draft: false
-          prerelease: ${{ github.event.inputs.release_type == 'prerelease' }}
+          prerelease: ${{ inputs.release_type == 'prerelease' }}
           files: |
             bin/targets/airoha/an7581/*.itb
             bin/targets/airoha/an7581/*imagebuilder*.tar.zst
