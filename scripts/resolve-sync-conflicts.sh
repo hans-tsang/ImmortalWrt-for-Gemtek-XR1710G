@@ -18,6 +18,16 @@
 # modify/delete conflict as soon as upstream touches it.  Those deletions are
 # re-applied automatically, because re-adding the file would only make the
 # no-Chinese check fail in the next step.
+#
+# The remaining two recurring classes of conflicts are handled generically:
+#
+#   * Upstream removes or renames a whole package that this fork only touched
+#     to translate its user-visible strings.  Keeping our copy would resurrect
+#     a package upstream no longer ships, so the removal is accepted.
+#   * Upstream translates a file that we had already translated.  When the
+#     merge base still contains Chinese and the upstream version does not, the
+#     local change was only a translation of the very same text, so the
+#     upstream wording is taken and the divergence disappears.
 
 set -euo pipefail
 
@@ -26,6 +36,12 @@ cd "$ROOT_DIR"
 
 is_unmerged() {
   git ls-files --unmerged -- "$1" | grep -q .
+}
+
+# Reads a file from stdin and succeeds when it contains CJK ideographs or
+# CJK/full-width punctuation.  The pattern only compiles in a UTF-8 locale.
+has_chinese() {
+  LC_ALL=C.UTF-8 grep -q -a -P '[\x{3000}-\x{303f}\x{3400}-\x{4dbf}\x{4e00}-\x{9fff}\x{ff01}-\x{ff60}]'
 }
 
 take_ours() {
@@ -71,15 +87,97 @@ keep_policy_deletions() {
     # conflict that needs a real decision rather than a deletion.
     git show ":2:$path" > /dev/null 2>&1 && continue
 
-    if git show ":3:$path" 2>/dev/null |
-       LC_ALL=C.UTF-8 grep -q -P '[\x{3000}-\x{303f}\x{3400}-\x{4dbf}\x{4e00}-\x{9fff}\x{ff01}-\x{ff60}]'; then
+    if git show ":3:$path" 2>/dev/null | has_chinese; then
       echo "Keeping local deletion of Chinese file: $path"
       git rm -q -f -- "$path"
     fi
   done < <(git diff --name-only --diff-filter=U)
 }
 
+# True when one of the path's ancestor directories exists on our side but was
+# removed on the upstream side, i.e. upstream dropped or renamed a whole
+# directory instead of editing the single file.
+upstream_removed_tree() {
+  local dir
+  dir="$(dirname "$1")"
+
+  while [ "$dir" != "." ] && [ "$dir" != "/" ]; do
+    if git rev-parse --quiet --verify "HEAD:$dir" > /dev/null 2>&1 &&
+       ! git rev-parse --quiet --verify "MERGE_HEAD:$dir" > /dev/null 2>&1; then
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+
+  return 1
+}
+
+# Upstream regularly merges or renames packages.  Every file of such a package
+# that this fork touched (to translate its user-visible strings) then shows up
+# as a modify/delete conflict with the upstream side missing.  Keeping our copy
+# would resurrect a package that upstream no longer builds, so the removal is
+# accepted whenever the whole directory disappeared upstream.
+accept_upstream_removals() {
+  local path
+
+  git rev-parse --quiet --verify MERGE_HEAD > /dev/null 2>&1 || return 0
+
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+
+    # Stage 3 present means upstream still ships the file, stage 2 missing
+    # means we deleted it ourselves; neither case belongs here.
+    if git show ":3:$path" > /dev/null 2>&1; then
+      continue
+    fi
+    if ! git show ":2:$path" > /dev/null 2>&1; then
+      continue
+    fi
+
+    if upstream_removed_tree "$path"; then
+      echo "Accepting upstream removal of $path"
+      git rm -q -f -- "$path"
+    fi
+  done < <(git diff --name-only --diff-filter=U)
+}
+
+# The fork translates the user-visible strings of the local LuCI applications.
+# Once upstream translates the same file, both sides rewrite the same lines and
+# every sync conflicts again.  When the merge base still carries Chinese text
+# and neither side does any more, the local change was only a translation of
+# that text, so the upstream wording is taken and the files stop diverging.
+take_upstream_translations() {
+  local path
+
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+
+    # All three stages must exist, otherwise this is not a content conflict.
+    if ! git show ":1:$path" > /dev/null 2>&1 ||
+       ! git show ":2:$path" > /dev/null 2>&1 ||
+       ! git show ":3:$path" > /dev/null 2>&1; then
+      continue
+    fi
+
+    if ! git show ":1:$path" | has_chinese; then
+      continue
+    fi
+    if git show ":2:$path" | has_chinese; then
+      continue
+    fi
+    if git show ":3:$path" | has_chinese; then
+      continue
+    fi
+
+    echo "Taking upstream translation of: $path"
+    git checkout --theirs -- "$path"
+    git add -- "$path"
+  done < <(git diff --name-only --diff-filter=U)
+}
+
 take_ours README.md
 keep_policy_deletions
+accept_upstream_removals
+take_upstream_translations
 merge_hunks_preferring_ours 1710.config
 merge_hunks_preferring_ours 2010.config
