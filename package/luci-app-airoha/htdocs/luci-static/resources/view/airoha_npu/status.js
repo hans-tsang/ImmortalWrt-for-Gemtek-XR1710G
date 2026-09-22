@@ -30,7 +30,7 @@ var cpuSettingsDirty = false;
 
 /* ── Shared state vocabulary ──────────────────────────────────────────────
  * The two tabs use ONE set of health words so a band, a token pool or a PLE
- * pool never reads "Good" on one page and "正常" on the other. */
+ * pool never reads "Good" on one page and "Normal" on the other. */
 
 function isEnabled(value) {
 	return value === true || value === 1 || value === '1';

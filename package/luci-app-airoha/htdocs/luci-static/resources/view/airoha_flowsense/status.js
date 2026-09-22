@@ -607,8 +607,7 @@ function translateAlertMsg(msg) {
 		template = template.replace(/\.\s*\./g, '.');
 		var tt = _(template);
 		if (tt !== template) {
-			var firstPeriod = tt.indexOf('。');
-			if (firstPeriod === -1) firstPeriod = tt.indexOf('.');
+			var firstPeriod = tt.indexOf('.');
 			if (firstPeriod !== -1) {
 				return tt.substring(0, firstPeriod) + ' (' + m[2] + ')' + tt.substring(firstPeriod);
 			}
