@@ -2,6 +2,7 @@
 'require rpc';
 'require ui';
 'require view';
+'require view.meshconf.ds-tokens as dsTokens';
 
 var callStatus = rpc.declare({
 	object: 'luci.meshconf',
@@ -87,14 +88,15 @@ var callSteerService = rpc.declare({
  * Surfaces, text and borders map onto the LuCI theme variables instead of
  * being hardcoded: the theme owns its light/dark palette, and the previous
  * fixed palette plus a body-background luminance probe made this page ignore
- * it entirely. Themes that ship a dark mode also set
- * :root[data-darkmode="true"], which is the only extra hook the accents need.
+ * it entirely. Dark mode is detected at runtime by probing the computed
+ * background luminance of the page containers plus the loaded stylesheet
+ * links, so the accents re-tune correctly on any theme that ships a dark palette.
  *
- * Sizes are em-based, never px: the LuCI theme sets the base font size, and
- * only a relative scale keeps the page in step with it.
+ * `tokens` is the shared `--ds-*` declaration block; see ds-tokens.js for the
+ * canonical values and the note about the LuCI theme owning light/dark.
  * ------------------------------------------------------------------------- */
 var css = [
-	'.meshconf-page{--ds-surface:var(--background-color-high,#fff);--ds-surface-sunken:var(--background-color-medium,#f6f8fa);--ds-border:var(--border-color-low,#d8dee4);--ds-text:var(--text-color-high,#1f2328);--ds-text-muted:var(--text-color-low,#5c6773);--ds-primary:var(--primary-color-high,#0969da);--ds-ok:#1a7f37;--ds-ok-tint:rgba(26,127,55,.08);--ds-ok-line:rgba(26,127,55,.35);--ds-warn:#bc4c00;--ds-warn-tint:rgba(188,76,0,.08);--ds-warn-line:rgba(188,76,0,.35);--ds-error:#cf222e;--ds-error-tint:rgba(207,34,46,.08);--ds-error-line:rgba(207,34,46,.40);--ds-info:#0969da;--ds-info-tint:rgba(9,105,218,.08);--ds-info-line:rgba(9,105,218,.35);--ds-focus-ring:rgba(9,105,218,.32);--ds-r-sm:4px;--ds-r-md:6px;--ds-r-lg:8px;--ds-r-pill:999px;--ds-sp-1:.25em;--ds-sp-2:.5em;--ds-sp-3:.75em;--ds-sp-4:1em;--ds-sp-5:1.5em;--ds-fs-xs:.8em;--ds-fs-sm:.88em;--ds-fs-base:1em;--ds-fs-lg:1.1em;--ds-fs-2xl:1.6em;--ds-shadow-1:0 1px 2px rgba(16,24,40,.04);line-height:1.5;color:var(--ds-text)}',
+	'.meshconf-page{' + dsTokens.tokens + ';line-height:1.5;color:var(--ds-text)}',
 	'.meshconf-page :focus-visible{outline:2px solid var(--ds-primary);outline-offset:2px}',
 	'.meshconf-page h2{margin:0 0 var(--ds-sp-1);font-size:var(--ds-fs-2xl);line-height:1.3;font-weight:650;color:var(--ds-text)}',
 	'.meshconf-page .nm-lede{margin:0 0 var(--ds-sp-4);color:var(--ds-text-muted);font-size:var(--ds-fs-sm)}',
@@ -172,11 +174,52 @@ var css = [
 	'@media(max-width:720px){.nm-title{flex-direction:column;align-items:flex-start;gap:var(--ds-sp-1)}}'
 ].join('\n');
 
-/* Dark accents. LuCI themes that ship a dark mode set this attribute on :root;
+/* Dark accents. Applied when isDarkMode() detects a dark page background;
  * surfaces and text already follow the theme variables, so only the semantic
  * accents have to be re-tuned for a dark background - and the tints get a
  * higher alpha, since a .08 wash is invisible on a dark surface. */
-var darkVars = ':root[data-darkmode="true"]{--ds-ok:#4ac26b;--ds-ok-tint:rgba(74,194,107,.18);--ds-ok-line:rgba(74,194,107,.45);--ds-warn:#e3934a;--ds-warn-tint:rgba(227,147,74,.18);--ds-warn-line:rgba(227,147,74,.45);--ds-error:#f47067;--ds-error-tint:rgba(244,112,103,.18);--ds-error-line:rgba(244,112,103,.5);--ds-info:#4d9cf6;--ds-info-tint:rgba(77,156,246,.18);--ds-info-line:rgba(77,156,246,.45);--ds-focus-ring:rgba(77,156,246,.45);--ds-shadow-1:none}';
+var darkVars = dsTokens.dark;
+
+function isDarkMode() {
+	/* Probe order matters: the first element with an opaque background wins.
+	 * - body carries the theme background in every LuCI theme.
+	 * - .main-left is Argon's sidebar: var(--menu-bg-color) (#ffffff) when
+	 *   light, #333333 when dark. It is the only other always-opaque surface
+	 *   Argon has, and it matters because Argon inlines css/dark.css into a
+	 *   <style> block (header.ut readfile()) instead of linking it, so the
+	 *   stylesheet fallback below can never match Argon.
+	 * - .main-content / #maincontent / .cbi-map are the bootstrap-era wrappers.
+	 * header is deliberately NOT probed: Argon paints it with var(--primary)
+	 * (#5e72e4, luminance ~121), which would read as dark in light mode. */
+	var els = [document.body, document.querySelector('.main-left'), document.querySelector('.main-right'),
+		document.querySelector('.main-content'), document.querySelector('#maincontent'), document.querySelector('.cbi-map')];
+	for (var i = 0; i < els.length; i++) {
+		if (!els[i]) continue;
+		/* Parse rgb()/rgba() explicitly. Matching with /\d+/g splits the
+		 * fractional alpha 0.6 into "0" and "6", so m[3] reads 0 and every
+		 * semi-transparent background is mistaken for a fully transparent one
+		 * and skipped - semi-transparent dark surfaces then fell through to the
+		 * stylesheet fallback and were reported as light. */
+		var bg = window.getComputedStyle(els[i]).backgroundColor;
+		var m = bg.match(/rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:[\s,/]+([\d.]+))?/i);
+		if (m) {
+			var a = m[4] === undefined ? 1 : parseFloat(m[4]);
+			if (a < 0.1) continue;
+			var lum = (parseFloat(m[1]) * 299 + parseFloat(m[2]) * 587 + parseFloat(m[3]) * 114) / 1000;
+			return lum < 128;
+		}
+	}
+	var sheets = document.querySelectorAll('link[href*="dark"], link[href*="glass"]');
+	if (sheets.length > 0) return true;
+	/* Last resort: follow the OS preference. This is exactly what Argon's
+	 * default mode='normal' does - it wraps the inlined dark.css in
+	 * @media (prefers-color-scheme: dark) - and it also covers any theme that
+	 * leaves every probed surface transparent. */
+	try {
+		if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return true;
+	} catch (e) {}
+	return false;
+}
 
 function injectCSS() {
 	var el = document.getElementById('meshconf-css');
@@ -185,7 +228,7 @@ function injectCSS() {
 		el.id = 'meshconf-css';
 		document.head.appendChild(el);
 	}
-	el.textContent = css + '\n' + darkVars;
+	el.textContent = css + (isDarkMode() ? '\n' + darkVars : '');
 }
 
 /* ---------------------------------------------------------------------------
@@ -252,21 +295,29 @@ function notify(msg, kind) {
 var statusData = null;
 var peerData = null;
 var pageBody = null;
+var updatedEl = null;
+
+function markUpdated() {
+	if (updatedEl)
+		updatedEl.textContent = _('Updated %s').format(new Date().toLocaleTimeString());
+}
 
 function refresh() {
 	if (!pageBody) return Promise.resolve();
 	pageBody.innerHTML = '';
-	pageBody.appendChild(E('div', { 'class': 'nm-empty' }, 'Loading...'));
+	pageBody.appendChild(E('div', { 'class': 'nm-empty' }, _('Loading…')));
 
 	return callStatus().then(function(res) {
 		statusData = res || {};
 		render();
+		markUpdated();
 	}, function(e) {
 		pageBody.innerHTML = '';
 		pageBody.appendChild(E('div', { 'class': 'nm-banner bad' }, [
-			E('strong', {}, 'Unable to read status'),
-			E('div', {}, e.message || 'The rpcd plugin did not respond (luci.meshconf).')
+			E('strong', {}, _('Failed to load data')),
+			E('div', {}, e.message || _('The rpcd plugin (luci.meshconf) did not respond.'))
 		]));
+		markUpdated();
 	});
 }
 
@@ -291,14 +342,14 @@ function withButton(btn, busyLabel, fn) {
 	return fn().then(function(res) {
 		done();
 		if (!res || res.success === false) {
-			notify((res && res.error) || 'Operation failed', 'danger');
+			notify((res && res.error) || _('Operation failed'), 'danger');
 			return res;
 		}
-		notify('Applied; wireless configuration is reloading (a few seconds).', 'success');
+		notify(_('Applied; the wireless configuration is reloading (a few seconds).'), 'success');
 		return refresh();
 	}, function(e) {
 		done();
-		notify(e.message || 'Operation failed', 'danger');
+		notify(e.message || _('Operation failed'), 'danger');
 	});
 }
 
@@ -307,23 +358,23 @@ function withButton(btn, busyLabel, fn) {
  * ------------------------------------------------------------------------- */
 function meshPill() {
 	var m = statusData.mesh || {};
-	if (!m.enabled) return pill('', 'Wireless Mesh: disabled');
-	if (m.state === 'up') return pill('ok', 'Wireless Mesh: connected to ' + (m.peers || 0) + ' peers');
-	if (m.state === 'waiting') return pill('warn', 'Wireless Mesh: waiting for peers');
-	return pill('warn', 'Wireless Mesh: enabled but not up');
+	if (!m.enabled) return pill('', _('Wireless Mesh: disabled'));
+	if (m.state === 'up') return pill('ok', _('Wireless Mesh: connected, %d peer(s)').format(m.peers || 0));
+	if (m.state === 'waiting') return pill('warn', _('Wireless Mesh: waiting for peers'));
+	return pill('warn', _('Wireless Mesh: enabled but not up'));
 }
 
 function roamPill() {
 	var r = statusData.roaming || {};
-	if (!r.enabled) return pill('', 'Roaming: disabled');
-	return pill('ok', 'Roaming: enabled for ' + (r.ap_ready || 0) + '/' + (r.ap_total || 0) + ' SSIDs');
+	if (!r.enabled) return pill('', _('Roaming: off'));
+	return pill('ok', _('Roaming: on for %d/%d SSIDs').format(r.ap_ready || 0, r.ap_total || 0));
 }
 
 function syncPill() {
 	var s = statusData.sync || {};
-	if (!s.enabled) return pill('', 'Wired Sync: disabled');
-	if (!s.running) return pill('warn', 'Wired Sync: service not running');
-	return pill('ok', 'Wired Sync: port ' + (s.port || '7761'));
+	if (!s.enabled) return pill('', _('Wired sync: disabled'));
+	if (!s.running) return pill('warn', _('Wired sync: service not running'));
+	return pill('ok', _('Wired sync: port %s').format(s.port || '7761'));
 }
 
 function renderStatus() {
@@ -333,18 +384,18 @@ function renderStatus() {
 
 	return E('div', { 'class': 'nm-section' }, [
 		E('div', { 'class': 'nm-title' }, [
-			E('span', {}, 'Local Status'),
+			E('span', {}, _('Local status')),
 			E('span', { 'class': 'nm-muted' }, l.hostname || '')
 		]),
 		E('div', { 'class': 'nm-status', 'style': 'margin-top:var(--ds-sp-3)' }, [
 			meshPill(), roamPill(), syncPill(), steerPill()
 		]),
 		E('div', { 'class': 'nm-infogrid' }, [
-			info('Model', l.model || '-'),
-			info('LAN IP', l.lan_ip || '-', l.mac || ''),
-			info('Wireless Config Version', E('span', { 'class': 'nm-mono' }, l.wifirev || '-'), 'Used to compare whether two devices match'),
-			info('Mesh Interface', m.iface || '-', m.state === 'up' ? 'Peers ' + m.peers + ' ' : (m.enabled ? 'No link established yet' : 'Not configured')),
-			info('Sync Key', s.key_set ? 'Set' : 'Not set', s.last_peer ? 'Last peer ' + s.last_peer : 'Not synced yet')
+			info(_('Model'), l.model || '-'),
+			info(_('LAN IP'), l.lan_ip || '-', l.mac || ''),
+			info(_('Wireless config revision'), E('span', { 'class': 'nm-mono' }, l.wifirev || '-'), _('Used to compare whether two devices match')),
+			info(_('Mesh interface'), m.iface || '-', m.state === 'up' ? _('%d peers').format(m.peers) : (m.enabled ? _('Link not established') : _('Not configured'))),
+			info(_('Sync key'), s.key_set ? _('Set') : _('Not set'), s.last_peer ? _('Last peer %s').format(s.last_peer) : _('Never synced'))
 		])
 	]);
 }
@@ -361,22 +412,22 @@ function renderMesh() {
 	});
 
 	var radioSel = select(radios.map(function(r) {
-		var label = r.name + '(' + (r.band || '?') + ', channel ' + (r.channel || 'auto') + ')';
-		if (!r.mesh_capable) label += ' · mesh not supported';
+		var label = _('%s (%s, channel %s)').format(r.name, r.band || '?', r.channel || 'auto');
+		if (!r.mesh_capable) label += _(' · mesh not supported');
 		return { value: r.name, label: label, disabled: !r.mesh_capable };
 	}), m.radio || (radios.length ? radios[0].name : ''));
 
 	var meshIdInput = textInput(m.mesh_id || 'XR1710G-Mesh');
 	var encSel = select([
-		{ value: 'sae', label: 'SAE (recommended)' },
-		{ value: 'none', label: 'No encryption' }
+		{ value: 'sae', label: _('SAE (recommended)') },
+		{ value: 'none', label: _('No encryption') }
 	], m.encryption || 'sae', function() {
 		keyField.style.display = (encSel.value === 'sae') ? '' : 'none';
 	});
 	// `m.key_set ? '' : ''` was a typo: both branches were empty, so the box
 	// was always blank and every save stored an empty key. Send the value.
-	var keyInput = textInput(m.key || '', { type: 'password', placeholder: m.key_set ? 'Leave blank to keep unchanged' : 'At least 8 characters' });
-	var keyField = field('Mesh Key', keyInput);
+	var keyInput = textInput(m.key || '', { type: 'password', placeholder: m.key_set ? _('Leave blank to keep unchanged') : _('At least 8 characters') });
+	var keyField = field(_('Mesh key'), keyInput);
 	keyField.style.display = (m.encryption === 'none') ? 'none' : '';
 
 	var bridgeBox = checkbox(m.bridge_lan !== false, function() {});
@@ -388,17 +439,17 @@ function renderMesh() {
 	}
 	toggleMeshFields(!!m.enabled);
 
-	var saveBtn = E('button', { 'class': 'cbi-button cbi-button-apply' }, 'Save and Apply');
+	var saveBtn = E('button', { 'class': 'cbi-button cbi-button-apply' }, _('Save & apply'));
 	saveBtn.addEventListener('click', function() {
 		if (enabledBox.checked && !radioSel.value) {
-			notify('Select a radio that supports mesh.', 'danger');
+			notify(_('Please select a mesh-capable radio.'), 'danger');
 			return;
 		}
 		if (enabledBox.checked && !meshIdInput.value.trim()) {
-			notify('Enter a Mesh ID; it must match on both devices.', 'danger');
+			notify(_('Please enter a Mesh ID; both devices must use the same one.'), 'danger');
 			return;
 		}
-		withButton(saveBtn, 'Applying...', function() {
+		withButton(saveBtn, _('Applying…'), function() {
 			return callApplyMesh(
 				enabledBox.checked ? '1' : '0',
 				radioSel.value,
@@ -410,10 +461,10 @@ function renderMesh() {
 		});
 	});
 
-	var stopBtn = E('button', { 'class': 'cbi-button cbi-button-reset' }, 'Disable 802.11s');
+	var stopBtn = E('button', { 'class': 'cbi-button cbi-button-reset' }, _('Disable 802.11s'));
 	stopBtn.disabled = !m.enabled;
 	stopBtn.addEventListener('click', function() {
-		withButton(stopBtn, 'Disabling...', function() {
+		withButton(stopBtn, _('Disabling…'), function() {
 			return callApplyMesh('0', radioSel.value, meshIdInput.value.trim(), encSel.value, '', '1');
 		});
 	});
@@ -421,33 +472,33 @@ function renderMesh() {
 	var warn = '';
 	if (!m.wpad_mesh) {
 		warn = E('div', { 'class': 'nm-banner' }, [
-			E('strong', {}, 'wpad may not support mesh'),
-			E('div', {}, '802.11s requires hostapd with mesh support (wpad-mesh-* or wpad-openssl). The current /usr/sbin/hostapd appears to lack mesh features, so the interface may not come up.')
+			E('strong', {}, _('wpad may not support mesh')),
+			E('div', {}, _('802.11s needs a hostapd built with mesh support (wpad-mesh-* or wpad-openssl). No mesh features were found in /usr/sbin/hostapd, so the interface may not come up.'))
 		]);
 	} else if (m.enabled && m.state === 'down') {
 		warn = E('div', { 'class': 'nm-banner' }, [
-			E('strong', {}, 'Mesh interface is not up'),
-			E('div', {}, 'Make sure both devices use the same Mesh ID, encryption, and key, and that the selected radio is enabled.')
+			E('strong', {}, _('The Mesh interface is down')),
+			E('div', {}, _('Make sure both devices use an identical Mesh ID, encryption method and key, and that the selected radio is enabled.'))
 		]);
 	}
 
 	return E('div', { 'class': 'nm-section' }, [
 		E('div', { 'class': 'nm-title' }, [
-			E('span', {}, 'Wireless Mesh(802.11s)'),
-			E('span', { 'class': 'nm-muted' }, m.enabled ? (m.state === 'up' ? 'Connected' : 'Configured') : 'Disabled')
+			E('span', {}, _('Wireless Mesh (802.11s)')),
+			E('span', { 'class': 'nm-muted' }, m.enabled ? (m.state === 'up' ? _('Connected') : _('Configured')) : _('Disabled'))
 		]),
-		E('p', { 'class': 'nm-subtitle' }, 'Create an 802.11s mesh interface on the selected radio and bridge it to LAN, putting both devices on the same layer-2 network. Native 802.11s, no batman-adv required.'),
+		E('p', { 'class': 'nm-subtitle' }, _('Create an 802.11s mesh interface on the selected radio and bridge it to the LAN, so both devices share one layer-2 network. Native 802.11s, no batman-adv required.')),
 		E('div', { 'class': 'nm-form' }, [
-			E('div', { 'class': 'nm-field wide' }, [ inlineField('Enable 802.11s mesh', enabledBox) ]),
-			field('Radio', radioSel),
-			field('Mesh ID', meshIdInput),
-			field('Encryption', encSel),
+			E('div', { 'class': 'nm-field wide' }, [ inlineField(_('Enable 802.11s mesh'), enabledBox) ]),
+			field(_('Radio'), radioSel),
+			field(_('Mesh ID'), meshIdInput),
+			field(_('Encryption'), encSel),
 			keyField,
-			E('div', { 'class': 'nm-field wide' }, [ inlineField('Bridge to LAN (both devices on the same layer 2)', bridgeBox) ])
+			E('div', { 'class': 'nm-field wide' }, [ inlineField(_('Bridge to LAN (both devices on one layer-2)'), bridgeBox) ])
 		]),
 		warn,
 		E('div', { 'class': 'nm-actions' }, [ saveBtn, stopBtn ]),
-		E('p', { 'class': 'nm-hint' }, 'Saving reloads wireless; connected clients will disconnect briefly.')
+		E('p', { 'class': 'nm-hint' }, _('Saving reloads the wireless; connected clients will briefly disconnect.'))
 	]);
 }
 
@@ -458,20 +509,20 @@ function peerRow(p) {
 	var selfRev = (statusData.local || {}).wifirev;
 	var same = p.wifirev && p.wifirev === selfRev;
 	var chNote = ((statusData.sync || {}).channel_mode !== 'follow')
-		? '(channels will be staggered automatically; already different channels stay unchanged)' : '(channels will be overwritten together)';
+		? _(' (channels are staggered automatically; already-different ones stay as they are)') : _(' (channels are overwritten together)');
 
-	var pullBtn = E('button', { 'class': 'cbi-button cbi-button-action' }, 'Pull to Local');
+	var pullBtn = E('button', { 'class': 'cbi-button cbi-button-action' }, _('Pull to local'));
 	pullBtn.addEventListener('click', function() {
-		if (!confirm('This will use ' + p.ip + '\'s wireless configuration to overwrite this device ' + chNote + ' (the current configuration will be backed up to /etc/config/wireless.meshconf-bak). Continue?')) return;
-		withButton(pullBtn, 'Pulling...', function() {
+		if (!confirm(_('Overwrite this device with the wireless config from %s%s (the current config is backed up to /etc/config/wireless.meshconf-bak). Continue?').format(p.ip, chNote))) return;
+		withButton(pullBtn, _('Pulling…'), function() {
 			return callSyncPeer(p.ip, 'pull');
 		});
 	});
 
-	var pushBtn = E('button', { 'class': 'cbi-button cbi-button-apply' }, 'Push to Peer');
+	var pushBtn = E('button', { 'class': 'cbi-button cbi-button-apply' }, _('Push to peer'));
 	pushBtn.addEventListener('click', function() {
-		if (!confirm('This will use this device\'s wireless configuration to overwrite ' + p.ip + ' (the peer decides whether to stagger channels based on its own settings). Continue?')) return;
-		withButton(pushBtn, 'Pushing...', function() {
+		if (!confirm(_('Overwrite %s with the wireless config of this device (the peer decides whether to stagger channels). Continue?').format(p.ip))) return;
+		withButton(pushBtn, _('Pushing…'), function() {
 			return callSyncPeer(p.ip, 'push');
 		});
 	});
@@ -484,9 +535,9 @@ function peerRow(p) {
 		E('td', { 'class': 'nowrap' }, E('span', { 'class': 'nm-mono' }, p.ip)),
 		E('td', { 'class': 'nowrap' }, [
 			E('span', { 'class': 'nm-mono' }, p.wifirev || '-'),
-			same ? E('span', { 'class': 'nm-state estab', 'style': 'margin-left:var(--ds-sp-1)' }, 'Matches local') : ''
+			same ? E('span', { 'class': 'nm-state estab', 'style': 'margin-left:var(--ds-sp-1)' }, _('Matches this device')) : ''
 		]),
-		E('td', { 'class': 'nowrap' }, p.source === 'manual' ? 'Manual' : 'Layer-2 discovery'),
+		E('td', { 'class': 'nowrap' }, p.source === 'manual' ? _('Manual') : _('Layer-2 discovery')),
 		E('td', { 'class': 'nowrap' }, [ pullBtn, ' ', pushBtn ])
 	]);
 }
@@ -507,40 +558,40 @@ function renderSync() {
 	// The backend now hands the stored key back, so the box is filled in on
 	// load and can be copied onto the other unit. It used to render empty
 	// (only key_set was sent) and one save later the stored key was gone.
-	var keyInput = textInput(s.key || '', { type: 'text', placeholder: s.key_set ? 'Leave blank to keep unchanged' : 'All devices must use the same key' });
-	var peersInput = textInput(((s.peers) || []).join(', '), { placeholder: 'For example: 192.168.2.1, 192.168.3.10' });
+	var keyInput = textInput(s.key || '', { type: 'text', placeholder: s.key_set ? _('Leave blank to keep unchanged') : _('All devices must use the same key') });
+	var peersInput = textInput(((s.peers) || []).join(', '), { placeholder: _('e.g. 192.168.2.1, 192.168.3.10') });
 
-	var saveBtn = E('button', { 'class': 'cbi-button cbi-button-apply' }, 'Save and Apply');
+	var saveBtn = E('button', { 'class': 'cbi-button cbi-button-apply' }, _('Save & apply'));
 	saveBtn.addEventListener('click', function() {
 		// Only a pair that has never had a key needs one typed in; on a
 		// configured pair the box is prefilled and an empty value means
 		// "keep it", which is what the backend does with it too.
 		if (enabledBox.checked && !s.key_set && !keyInput.value.trim()) {
-			notify('Set a shared key; it must match on all devices or sync will fail.', 'danger');
+			notify(_('Please set the shared key; all devices must match it, otherwise sync will fail.'), 'danger');
 			return;
 		}
-		withButton(saveBtn, 'Saving...', function() {
+		withButton(saveBtn, _('Saving…'), function() {
 			return callApplySync(enabledBox.checked ? '1' : '0', portInput.value.trim(), keyInput.value.trim(), peersInput.value, keepBox.checked ? 'stagger' : 'follow');
 		});
 	});
 
-	var scanBtn = E('button', { 'class': 'cbi-button cbi-button-action' }, 'Scan LAN Devices');
+	var scanBtn = E('button', { 'class': 'cbi-button cbi-button-action' }, _('Scan LAN for devices'));
 	scanBtn.addEventListener('click', function() {
 		var self = scanBtn;
 		var orig = self.textContent;
 		self.disabled = true;
-		self.textContent = 'Scanning...';
+		self.textContent = _('Scanning…');
 		callScanPeers().then(function(res) {
 			self.disabled = false;
 			self.textContent = orig;
 			peerData = res || { peers: [] };
 			render();
 			var n = (peerData.peers || []).length;
-			notify(n ? 'Found ' + n + ' devices.' : 'No other devices found; make sure the peer has wired sync enabled, the key matches, and it is on the same LAN.', n ? 'success' : 'info');
+			notify(n ? _('Found %d device(s).').format(n) : _('No other devices found. Check that the peer has wired sync enabled, uses the same key, and is on the same LAN.'), n ? 'success' : 'info');
 		}, function(e) {
 			self.disabled = false;
 			self.textContent = orig;
-			notify(e.message || 'Scan failed', 'danger');
+			notify(e.message || _('Scan failed'), 'danger');
 		});
 	});
 
@@ -548,16 +599,16 @@ function renderSync() {
 	scanBtn.disabled = !s.enabled;
 
 	var peers = (peerData && peerData.peers) || [];
-	var table = E('div', { 'class': 'nm-empty' }, 'Click "Scan LAN Devices" to find XR1710G devices on the same LAN.');
+	var table = E('div', { 'class': 'nm-empty' }, _('Click "Scan LAN for devices" to find XR1710G units on the same LAN.'));
 	if (peers.length) {
 		table = E('div', {}, [
 			E('table', { 'class': 'nm-table' }, [
 				E('thead', {}, E('tr', {}, [
-					E('th', {}, 'Device'),
-					E('th', {}, 'IP'),
-					E('th', {}, 'Config Version'),
-					E('th', {}, 'Source'),
-					E('th', {}, 'Sync')
+					E('th', {}, _('Device')),
+					E('th', {}, _('IP')),
+					E('th', {}, _('Config revision')),
+					E('th', {}, _('Source')),
+					E('th', {}, _('Sync'))
 				])),
 				E('tbody', {}, peers.map(peerRow))
 			])
@@ -566,81 +617,81 @@ function renderSync() {
 
 	var warn = '';
 	if (s.enabled && !s.running) {
-		var startBtn = E('button', { 'class': 'cbi-button cbi-button-apply' }, 'Start Service');
+		var startBtn = E('button', { 'class': 'cbi-button cbi-button-apply' }, _('Start service'));
 		startBtn.addEventListener('click', function() {
 			var self = startBtn, orig = self.textContent;
 			self.disabled = true;
-			self.textContent = 'Starting...';
+			self.textContent = _('Starting…');
 			var done = function() {
 				self.disabled = false;
 				self.textContent = orig;
 			};
 			callRestartSync().then(function(res) {
 				done();
-				if (res && res.running) notify('Sync service started.', 'success');
-				else notify('The service is still not up; SSH in and run logread -e meshconf to check why.', 'danger');
+				if (res && res.running) notify(_('The sync service has started.'), 'success');
+				else notify(_('The service is still not up; run "logread -e meshconf" over SSH to see why.'), 'danger');
 				return refresh();
 			}, function(e) {
 				done();
-				notify(e.message || 'Start failed', 'danger');
+				notify(e.message || _('Start failed'), 'danger');
 			});
 		});
 		warn = E('div', { 'class': 'nm-banner bad' }, [
-			E('strong', {}, 'Sync service is not running'),
-			E('div', {}, s.reason || 'The service process does not exist. Saving should start it automatically, or use the button below to start it manually.'),
+			E('strong', {}, _('The sync service is not running')),
+			E('div', {}, s.reason || _('The service process is missing. It should start automatically after saving; you can also start it manually with the button below.')),
 			E('div', { 'style': 'margin-top:.5em' }, [ startBtn ])
 		]);
 	}
 
 	return E('div', { 'class': 'nm-section' }, [
 		E('div', { 'class': 'nm-title' }, [
-			E('span', {}, 'Wired Sync (same model devices)'),
-			E('span', { 'class': 'nm-muted' }, s.enabled ? 'Enabled' : 'Disabled')
+			E('span', {}, _('Wired sync (same-model devices)')),
+			E('span', { 'class': 'nm-muted' }, s.enabled ? _('Enabled') : _('Disabled'))
 		]),
-		E('p', { 'class': 'nm-subtitle' }, 'When devices are on the same LAN, use this device\'s configuration to align the others: periodically broadcast to discover neighbors, then sync /etc/config/wireless with the shared key (including SSID, keys, and k/v/r settings).'),
+		E('p', { 'class': 'nm-subtitle' }, _('When the devices are already on the same LAN, use this one to unify the others: it periodically broadcasts to discover neighbours, then syncs /etc/config/wireless (including SSID, key and k/v/r parameters) using the shared key.')),
 		E('div', { 'class': 'nm-form' }, [
-			E('div', { 'class': 'nm-field wide' }, [ inlineField('Enable wired sync (also allow discovery)', enabledBox) ]),
-			field('Port', portInput),
-			field('Shared Key', keyInput),
-			field('Manually Added Device IPs', peersInput, true),
-			E('div', { 'class': 'nm-field wide' }, [ inlineField('Stagger channels during sync', keepBox) ]),
-			E('p', { 'class': 'nm-hint' }, 'If the two APs are far apart, you can turn this off.')
+			E('div', { 'class': 'nm-field wide' }, [ inlineField(_('Enable wired sync (also makes this device discoverable)'), enabledBox) ]),
+			field(_('Port'), portInput),
+			field(_('Shared key'), keyInput),
+			field(_('Manually added device IPs'), peersInput, true),
+			E('div', { 'class': 'nm-field wide' }, [ inlineField(_('Automatically stagger channels when syncing'), keepBox) ]),
+			E('p', { 'class': 'nm-hint' }, _('If the two APs are far apart, you may turn this off.'))
 		]),
 		warn,
 		E('div', { 'class': 'nm-actions' }, [ saveBtn, scanBtn ]),
 		table,
-		E('p', { 'class': 'nm-hint' }, 'Sync overwrites the peer\'s entire /etc/config/wireless; pulling to this device automatically backs it up as /etc/config/wireless.meshconf-bak. For devices outside the same layer 2 network (across layer 3), enter them under "Manually Added Device IPs". When "stagger channels" is enabled, the receiving side moves to a non-overlapping channel in the same band (2.4G uses 1/6/11; 5G/6G jumps by channel width); channels that are already staggered stay unchanged, and the radio carrying the 802.11s backhaul stays aligned with the peer (mesh requires the same channel). SSID, keys, and k/v/r settings sync normally; roaming is unaffected.')
+		E('p', { 'class': 'nm-hint' }, _('Syncing overwrites the whole /etc/config/wireless on the peer; pulling to this device automatically backs it up to /etc/config/wireless.meshconf-bak. For devices not on the same layer-2 (across routers), add them under "Manually added device IPs". With "Automatically stagger channels" checked, the receiving end moves within the same band to a channel that does not overlap the peer (2.4G uses 1/6/11, 5G/6G hops by channel width); channels that are already staggered stay as they are, and the radio carrying the 802.11s backhaul stays on the same channel as the peer (mesh requires a shared channel). SSID, key and k/v/r sync as usual and roaming is unaffected.'))
 	]);
 }
 
 /* ---------------------------------------------------------------------------
  * 802.11k/v/r
  * ------------------------------------------------------------------------- */
-var ROAM_LABEL = { k: '802.11k neighbor reports', v: '802.11v BTM transition', r: '802.11r fast roaming' };
+var ROAM_LABEL = { k: _('802.11k neighbor report'), v: _('802.11v BTM transition'), r: _('802.11r fast roaming') };
 
 function roamToggle(ap, feat) {
 	var on = !!ap[feat];
 	// FT derives PMK-R0/R1 from the key, so an open network has no R to give.
 	var blocked = (feat === 'r' && !ap.ft_ok);
-	var title = on ? 'Click to disable ' + ROAM_LABEL[feat] : 'Click to enable ' + ROAM_LABEL[feat];
+	var title = on ? _('Click to disable %s').format(ROAM_LABEL[feat]) : _('Click to enable %s').format(ROAM_LABEL[feat]);
 	if (blocked) {
-		title = 'Open / OWE networks cannot enable 802.11r';
+		title = _('802.11r cannot be enabled on an open / OWE network');
 	} else if (feat === 'r' && ap.wpa3) {
 		// WPA3 has no PSK to derive a local PMK-R0 from; say so up front.
-		title += '(WPA3 network: ft_psk_generate_local will be set to 0)';
+		title += _(' (WPA3 network: ft_psk_generate_local is forced to 0)');
 	}
 	var b = E('button', {
 		'class': 'nm-toggle' + (on ? ' on' : '') + (blocked ? ' dim' : ''),
 		'type': 'button',
 		'title': title
-	}, on ? 'On' : 'Off');
+	}, on ? _('On') : _('Off'));
 
 	if (blocked) {
 		b.disabled = true;
 		return b;
 	}
 	b.addEventListener('click', function() {
-		withButton(b, '…', function() { return callToggleRoam(ap.section, feat, on ? '0' : '1'); });
+		withButton(b, _('…'), function() { return callToggleRoam(ap.section, feat, on ? '0' : '1'); });
 	});
 	return b;
 }
@@ -655,8 +706,8 @@ function mdCell(ap) {
 		'maxlength': '4',
 		'spellcheck': 'false',
 		'value': current,
-		'placeholder': 'Auto',
-		'title': '4 hex digits (0-9 / a-f); clear and press Enter to restore automatic SSID-based derivation. All interfaces with the same SSID will be updated together.'
+		'placeholder': _('Auto'),
+		'title': _('4 hex digits (0-9 / a-f); clear it and press Enter to fall back to the SSID-derived value. All interfaces of the same SSID are updated together.')
 	});
 
 	inp.addEventListener('change', function() {
@@ -666,22 +717,22 @@ function mdCell(ap) {
 		callSetMd(ap.section, v).then(function(res) {
 			if (!res || res.success === false) {
 				inp.disabled = false;
-				notify((res && res.error) || 'Save failed', 'danger');
+				notify((res && res.error) || _('Save failed'), 'danger');
 				return;
 			}
 			notify(v
-				? 'Mobility domain set to ' + res.md + ' (' + res.applied + ' interfaces with the same SSID updated together).'
-				: 'Cleared; restored automatic SSID-based derivation (' + res.md + ').', 'success');
+				? _('Mobility domain set to %s (%d interfaces of the same SSID updated).').format(res.md, res.applied)
+				: _('Cleared; back to deriving from the SSID (%s).').format(res.md), 'success');
 			return refresh();
 		}, function(e) {
 			inp.disabled = false;
-			notify(e.message || 'Save failed', 'danger');
+			notify(e.message || _('Save failed'), 'danger');
 		});
 	});
 
 	return E('td', { 'class': 'nowrap' }, [
 		inp,
-		ap.md_set ? '' : E('span', { 'class': 'nm-state', 'style': 'margin-left:var(--ds-sp-1)' }, 'Auto')
+		ap.md_set ? '' : E('span', { 'class': 'nm-state', 'style': 'margin-left:var(--ds-sp-1)' }, _('Auto'))
 	]);
 }
 
@@ -689,27 +740,27 @@ function renderRoaming() {
 	var r = statusData.roaming || {};
 	var aps = statusData.aps || [];
 
-	var onBtn = E('button', { 'class': 'cbi-button cbi-button-apply' }, 'Enable k/v/r');
+	var onBtn = E('button', { 'class': 'cbi-button cbi-button-apply' }, _('Enable k/v/r'));
 	onBtn.addEventListener('click', function() {
-		withButton(onBtn, 'Enabling...', function() { return callApplyRoaming('1'); });
+		withButton(onBtn, _('Enabling…'), function() { return callApplyRoaming('1'); });
 	});
 
-	var offBtn = E('button', { 'class': 'cbi-button cbi-button-reset' }, 'Disable k/v/r');
+	var offBtn = E('button', { 'class': 'cbi-button cbi-button-reset' }, _('Disable k/v/r'));
 	offBtn.addEventListener('click', function() {
-		withButton(offBtn, 'Disabling...', function() { return callApplyRoaming('0'); });
+		withButton(offBtn, _('Disabling…'), function() { return callApplyRoaming('0'); });
 	});
 
-	var table = E('div', { 'class': 'nm-empty' }, 'No AP interfaces currently.');
+	var table = E('div', { 'class': 'nm-empty' }, _('There are no AP interfaces.'));
 	if (aps.length) {
 		table = E('table', { 'class': 'nm-table' }, [
 			E('thead', {}, E('tr', {}, [
-				E('th', {}, 'SSID'),
-				E('th', {}, 'Band'),
-				E('th', {}, 'Network'),
-				E('th', { 'title': ROAM_LABEL.k }, 'K'),
-				E('th', { 'title': ROAM_LABEL.v }, 'V'),
-				E('th', { 'title': ROAM_LABEL.r }, 'R'),
-				E('th', {}, 'Mobility Domain MD')
+				E('th', {}, _('SSID')),
+				E('th', {}, _('Band')),
+				E('th', {}, _('Network')),
+				E('th', { 'title': ROAM_LABEL.k }, _('K')),
+				E('th', { 'title': ROAM_LABEL.v }, _('V')),
+				E('th', { 'title': ROAM_LABEL.r }, _('R')),
+				E('th', {}, _('Mobility domain MD'))
 			])),
 			E('tbody', {}, aps.map(function(a) {
 				return E('tr', {}, [
@@ -727,17 +778,17 @@ function renderRoaming() {
 
 	return E('div', { 'class': 'nm-section' }, [
 		E('div', { 'class': 'nm-title' }, [
-			E('span', {}, '802.11k/v/r Roaming'),
-			E('span', { 'class': 'nm-muted' }, (r.ap_ready || 0) + '/' + (r.ap_total || 0) + ' SSIDs enabled')
+			E('span', {}, _('802.11k/v/r roaming')),
+			E('span', { 'class': 'nm-muted' }, _('%d/%d SSIDs enabled').format(r.ap_ready || 0, r.ap_total || 0))
 		]),
-		E('p', { 'class': 'nm-subtitle' }, 'K / V / R in the table can be toggled per SSID. K writes neighbor and beacon reports, V writes BTM transition and WNM sleep, and R writes fast roaming (Over the Air, 20s reassociation deadline, mobility domain). The mobility domain is derived from the SSID: the same SSID gets the same MD on all devices and bands, while different SSIDs are separated automatically.'),
+		E('p', { 'class': 'nm-subtitle' }, _('The K / V / R in the table can be toggled per SSID. K writes the neighbour report and beacon report, V writes the BTM transition and WNM sleep, R writes fast roaming (Over the Air, 20s reassociation deadline, mobility domain). The mobility domain is derived from the SSID: the same SSID yields the same MD on every device and every band, while different SSIDs get distinct MDs.')),
 		(function() {
 			var w = (aps.filter(function(a) { return a.wpa3; })).length;
-			return w ? E('p', { 'class': 'nm-hint' }, 'There are ' + w + ' interfaces using WPA3 / WPA3 mixed encryption: these interfaces have no PSK for deriving local PMK-R0, so enabling R forces ft_psk_generate_local to 0 (other encryption modes use 1).') : '';
+			return w ? E('p', { 'class': 'nm-hint' }, _('%d interfaces use WPA3 / WPA3 mixed encryption: they have no PSK to derive a local PMK-R0, so enabling R forces ft_psk_generate_local to 0 (1 for other encryption types).').format(w)) : '';
 		})(),
 		E('div', { 'class': 'nm-actions', 'style': 'margin-top:0;border-top:0;padding-top:0' }, [ onBtn, offBtn ]),
 		table,
-		E('p', { 'class': 'nm-hint' }, 'The two buttons above apply to all SSIDs at once; table toggles only change their interface. The MD column is editable: enter 4 hex digits (0-9 / a-f), or clear it to restore automatic SSID-based derivation. Editing one interface updates all interfaces with the same SSID; otherwise FT will not work when roaming across bands. After enabling, use "Wired Sync" to push the configuration to other devices so the whole mesh has consistent SSIDs and MDs.')
+		E('p', { 'class': 'nm-hint' }, _('The two buttons above act on all SSIDs at once; the toggles in the table only change the interface on that row. The MD column is editable: enter 4 hex digits (0-9 / a-f), or clear it to fall back to the SSID-derived value. Editing one interface updates every interface of the same SSID, otherwise FT will not work when roaming across bands. Enable it, then use "Wired sync" to push the config to the other devices so the whole group shares the same SSID and MD.'))
 	]);
 }
 
@@ -749,20 +800,20 @@ function renderRoaming() {
  * section is written and never read. The banner below says so when that is
  * what the numbers mean. */
 var STEER_BANDS = [
-	{ pfx: 'g', name: '802_11g', label: '2.4 GHz' },
-	{ pfx: 'a', name: '802_11a', label: '5 GHz' },
-	{ pfx: 'x', name: '802_11a_6g', label: '6 GHz' }
+	{ pfx: 'g', name: '802_11g', label: _('2.4 GHz') },
+	{ pfx: 'a', name: '802_11a', label: _('5 GHz') },
+	{ pfx: 'x', name: '802_11a_6g', label: _('6 GHz') }
 ];
 
 var STEER_KEYS = [ 'initial_score', 'rssi_val', 'low_rssi_val', 'rssi_weight', 'rssi_center' ];
 
 function steerPill() {
 	var s = statusData.steering || {};
-	if (!s.installed) return pill('', 'Roaming Steering: DAWN not installed');
-	if (!s.enabled) return pill('', 'Roaming Steering: disabled');
-	if (!s.running) return pill('warn', 'Roaming Steering: service not running');
-	if (!s.ubus) return pill('warn', 'Roaming Steering: not connected to ubus');
-	return pill('ok', 'Roaming Steering: enabled');
+	if (!s.installed) return pill('', _('Steering: DAWN not installed'));
+	if (!s.enabled) return pill('', _('Steering: disabled'));
+	if (!s.running) return pill('warn', _('Steering: service not running'));
+	if (!s.ubus) return pill('warn', _('Steering: not connected to ubus'));
+	return pill('ok', _('Steering: enabled'));
 }
 
 function bandConf(name) {
@@ -796,14 +847,14 @@ function renderSteer() {
 	/* Stock DAWN ships 10.0.0.255, which reaches nobody on this LAN. This is
 	 * the address the neighbour discovery already uses, computed the same way. */
 	var bcastInput = textInput(net.broadcast_ip || s.suggest_bcast || '', {
-		placeholder: s.suggest_bcast || 'For example: 192.168.1.255'
+		placeholder: s.suggest_bcast || _('e.g. 192.168.1.255')
 	});
 
 	var netSel = select([
-		{ value: '2', label: 'umdns + TCP (recommended)' },
-		{ value: '0', label: 'UDP broadcast' },
-		{ value: '1', label: 'UDP multicast' },
-		{ value: '3', label: 'TCP (no automatic discovery)' }
+		{ value: '2', label: _('umdns + TCP (recommended)') },
+		{ value: '0', label: _('UDP broadcast') },
+		{ value: '1', label: _('UDP multicast') },
+		{ value: '3', label: _('TCP (no auto-discovery)') }
 	], net.network_option || '2');
 
 	var bportInput = textInput(net.broadcast_port || '1025', { type: 'number' });
@@ -813,8 +864,8 @@ function renderSteer() {
 	 * how they stop being the same. The pair already agrees on one for the
 	 * wired sync, so DAWN's is stretched from that instead. */
 	var keySel = select([
-		{ value: 'derived', label: 'Derived from the "Wired Sync" shared key (recommended)' },
-		{ value: 'keep', label: 'Keep the current key unchanged' }
+		{ value: 'derived', label: _('Derived from the "wired sync" shared key (recommended)') },
+		{ value: 'keep', label: _('Keep the current key') }
 	], 'derived');
 	if (!net.key_set) keySel.value = 'derived';
 
@@ -823,10 +874,10 @@ function renderSteer() {
 	/* Upstream defaults to 3 ("both"), which also kicks on an absolute
 	 * threshold - even when there is no better AP to hand the client to. */
 	var kickSel = select([
-		{ value: '1', label: 'RSSI comparison (recommended)' },
-		{ value: '2', label: 'Absolute RSSI' },
-		{ value: '3', label: 'Require both' },
-		{ value: '0', label: 'Do not move clients' }
+		{ value: '1', label: _('RSSI comparison (recommended)') },
+		{ value: '2', label: _('Absolute RSSI') },
+		{ value: '3', label: _('Both') },
+		{ value: '0', label: _('Do not move clients') }
 	], met.kicking || '1');
 
 	var ktInput = numCell(met.kicking_threshold);
@@ -834,9 +885,9 @@ function renderSteer() {
 	var pcInput = numCell(met.min_probe_count);
 	var capInput = numCell(met.chan_util_avg_period);
 	var nrSel = select([
-		{ value: '0', label: 'Off' },
-		{ value: '1', label: 'Static (all APs)' },
-		{ value: '2', label: 'Dynamic (neighbors heard by clients)' }
+		{ value: '0', label: _('Off') },
+		{ value: '1', label: _('Static (all APs)') },
+		{ value: '2', label: _('Dynamic (from neighbours a client hears)') }
 	], met.set_hostapd_nr || '0');
 
 	var bandInputs = {};
@@ -865,13 +916,13 @@ function renderSteer() {
 	}
 	setSteerFields(enabled);
 
-	var saveBtn = E('button', { 'class': 'cbi-button cbi-button-apply' }, 'Save and Apply');
+	var saveBtn = E('button', { 'class': 'cbi-button cbi-button-apply' }, _('Save & apply'));
 	saveBtn.addEventListener('click', function() {
 		if (enabledBox.checked && keySel.value === 'derived' && !s.sync_key_set) {
-			notify('Set the shared key under "Wired Sync" first: DAWN derives its key from it, otherwise the two devices cannot decrypt each other\'s messages.', 'danger');
+			notify(_('Please set the shared key in "Wired sync" first: the DAWN key is derived from it, otherwise the two devices cannot decrypt each other.'), 'danger');
 			return;
 		}
-		withButton(saveBtn, 'Saving...', function() {
+		withButton(saveBtn, _('Saving…'), function() {
 			var band = function(pfx, k) { return bandInputs[pfx][k].value; };
 			return callApplySteer(
 				enabledBox.checked ? '1' : '0',
@@ -885,20 +936,20 @@ function renderSteer() {
 		});
 	});
 
-	var startBtn = E('button', { 'class': 'cbi-button cbi-button-action' }, 'Start Service');
+	var startBtn = E('button', { 'class': 'cbi-button cbi-button-action' }, _('Start service'));
 	startBtn.addEventListener('click', function() {
 		var self = startBtn, orig = self.textContent;
 		self.disabled = true;
-		self.textContent = 'Starting...';
+		self.textContent = _('Starting…');
 		var done = function() { self.disabled = false; self.textContent = orig; };
 		callSteerService().then(function(res) {
 			done();
-			if (res && res.running) notify('Roaming steering service started.', 'success');
-			else notify('The service is still not up; SSH in and run logread -e dawn to check why.', 'danger');
+			if (res && res.running) notify(_('The steering service has started.'), 'success');
+			else notify(_('The service is still not up; run "logread -e dawn" over SSH to see why.'), 'danger');
 			return refresh();
 		}, function(e) {
 			done();
-			notify(e.message || 'Start failed', 'danger');
+			notify(e.message || _('Start failed'), 'danger');
 		});
 	});
 
@@ -906,12 +957,12 @@ function renderSteer() {
 	var banners = [];
 	if (!s.installed) {
 		banners.push(E('div', { 'class': 'nm-banner bad' }, [
-			E('strong', {}, 'DAWN is not installed'),
-			E('div', {}, 'This package declares dawn as a dependency. If this firmware was built before that dependency was added, install it with opkg install dawn (which brings in umdns), then refresh the page. Until then, 802.11k/v/r still works, but nothing decides when a client should switch APs.')
+			E('strong', {}, _('DAWN is not installed')),
+			E('div', {}, _('This package declares dawn as a dependency: if this device was built before that dependency was added, install it with opkg install dawn (umdns comes with it) and then reload the page. Until then 802.11k/v/r still work; there is simply nothing to make the "time to change AP" decision.'))
 		]));
 	} else if (s.enabled && s.reason) {
 		banners.push(E('div', { 'class': 'nm-banner bad' }, [
-			E('strong', {}, 'Roaming steering is not working properly'),
+			E('strong', {}, _('Steering is not working properly')),
 			E('div', {}, s.reason)
 		]));
 	}
@@ -919,8 +970,8 @@ function renderSteer() {
 	var r = statusData.roaming || {};
 	if (s.enabled && r.ap_total > 0 && r.ap_ready < r.ap_total) {
 		banners.push(E('div', { 'class': 'nm-banner' }, [
-			E('strong', {}, 'There are ' + (r.ap_total - r.ap_ready) + ' SSIDs without k/v enabled yet'),
-			E('div', {}, 'DAWN uses 802.11v BSS Transition to hand clients off, and 802.11k tells it where to send them. Enable K and V for these SSIDs in the table above.')
+			E('strong', {}, _('%d SSIDs still do not have k/v enabled').format(r.ap_total - r.ap_ready)),
+			E('div', {}, _('DAWN hands a client off with the 802.11v BSS Transition, and 802.11k tells it whom to hand the client to. Turn on K and V for these SSIDs in the table above.'))
 		]));
 	}
 
@@ -928,53 +979,53 @@ function renderSteer() {
 		var six = bandConf('802_11a_6g');
 		if (!six.present) {
 			banners.push(E('div', { 'class': 'nm-banner info' }, [
-				E('strong', {}, 'This device has a 6 GHz radio, but the current DAWN does not recognize the 6G config section'),
-				E('div', {}, 'DAWN without the 6 GHz patch only has 802_11g and 802_11a parameter sets, so 6G is treated as the last set (802_11a) and shares the same scores. The 6 GHz row below can still be filled in and synced, but only firmware with the patches/feeds/packages/net/dawn patch will actually read it.')
+				E('strong', {}, _('This device has a 6 GHz radio, but the current DAWN does not recognise the 6G section')),
+				E('div', {}, _('DAWN without the 6 GHz patch only has two parameter sets, 802_11g and 802_11a, so 6G is treated as the last group (802_11a) and shares its scores. The 6 GHz row below can still be filled in and synced, but only firmware carrying the patches/feeds/packages/net/dawn patch actually reads it.'))
 			]));
 		}
 	}
 
 	return E('div', { 'class': 'nm-section' }, [
 		E('div', { 'class': 'nm-title' }, [
-			E('span', {}, 'Roaming Steering(DAWN)'),
-			E('span', { 'class': 'nm-muted' }, s.installed ? (enabled ? 'Enabled' : 'Disabled') : 'DAWN not installed')
+			E('span', {}, _('Steering (DAWN)')),
+			E('span', { 'class': 'nm-muted' }, s.installed ? (enabled ? _('Enabled') : _('Disabled')) : _('DAWN not installed'))
 		]),
-		E('p', { 'class': 'nm-subtitle' }, '802.11k/v/r only publishes information: APs can answer "who else is there", and clients can ask on their own. DAWN handles the other half: it collects each client as seen by all devices, scores candidate APs, then asks the current AP to use BSS Transition to move the client to a better one. If two devices share an SSID but nothing makes that decision, clients will stick to the old AP until the signal drops completely.'),
+		E('p', { 'class': 'nm-subtitle' }, _('802.11k/v/r only publish information: an AP can answer "who else is there", and a client can ask on its own. DAWN does the other half — it aggregates what every device sees for each client, scores the candidate APs, and then has the current AP hand the client to a better one with a BSS Transition. With two devices on the same SSID and nothing making that decision, a client sticks to its original AP until the signal dies completely.')),
 		E('div', { 'class': 'nm-form' }, [
-			E('div', { 'class': 'nm-field wide' }, [ inlineField('Enable roaming steering (DAWN)', enabledBox) ]),
-			field('Discovery Method', netSel),
-			field('Broadcast Address', bcastInput),
-			field('Broadcast Port', bportInput),
-			field('TCP Port', tportInput),
-			field('DAWN Key', keySel),
-			E('div', { 'class': 'nm-field wide' }, [ inlineField('Encrypt messages between neighboring devices (must match on all devices)', useEncBox) ])
+			E('div', { 'class': 'nm-field wide' }, [ inlineField(_('Enable steering (DAWN)'), enabledBox) ]),
+			field(_('Discovery method'), netSel),
+			field(_('Broadcast address'), bcastInput),
+			field(_('Broadcast port'), bportInput),
+			field(_('TCP port'), tportInput),
+			field(_('DAWN key'), keySel),
+			E('div', { 'class': 'nm-field wide' }, [ inlineField(_('Encrypt traffic between neighbouring devices (all devices must match)'), useEncBox) ])
 		]),
-		E('div', { 'class': 'nm-subtitle', 'style': 'margin-top:var(--ds-sp-4)' }, 'When to hand clients off'),
+		E('div', { 'class': 'nm-subtitle', 'style': 'margin-top:var(--ds-sp-4)' }, _('When to hand a client off')),
 		E('div', { 'class': 'nm-form' }, [
-			field('Kick Policy', kickSel),
-			field('Score Difference Threshold', ktInput),
-			field('Consecutive Decision Count', nkInput),
-			field('Minimum Probe Count', pcInput),
-			field('Channel Utilization Averaging Period', capInput),
-			field('Send Neighbor Reports', nrSel)
+			field(_('Kicking policy'), kickSel),
+			field(_('Score difference threshold'), ktInput),
+			field(_('Consecutive evaluation count'), nkInput),
+			field(_('Minimum probe count'), pcInput),
+			field(_('Channel utilization averaging period'), capInput),
+			field(_('Send neighbour reports'), nrSel)
 		]),
-		E('div', { 'class': 'nm-subtitle', 'style': 'margin-top:var(--ds-sp-4)' }, 'Per-band Scoring'),
+		E('div', { 'class': 'nm-subtitle', 'style': 'margin-top:var(--ds-sp-4)' }, _('Scoring per band')),
 		E('table', { 'class': 'nm-table' }, [
 			E('thead', {}, E('tr', {}, [
-				E('th', {}, 'Band'),
-				E('th', { 'title': 'Base score for APs in this band: 2.4G is usually lower than 5G/6G' }, 'Base Score'),
-				E('th', { 'title': 'Add points when signal is above this value' }, 'Good Signal Threshold'),
-				E('th', { 'title': 'Subtract points when signal is below this value' }, 'Poor Signal Threshold'),
-				E('th', { 'title': 'Points added or subtracted per 1 dB from the midpoint; when nonzero, the next two settings are weakened and scoring mostly follows signal strength' }, 'RSSI Weight'),
-				E('th', { 'title': 'Signal midpoint used for scoring' }, 'RSSI Midpoint')
+				E('th', {}, _('Band')),
+				E('th', { 'title': _('Base score of an AP on this band: 2.4G is usually a little lower than 5G/6G') }, _('Base score')),
+				E('th', { 'title': _('Add points when the signal is better than this') }, _('Good signal threshold')),
+				E('th', { 'title': _('Subtract points when the signal is worse than this') }, _('Bad signal threshold')),
+				E('th', { 'title': _('Points added or subtracted per 1 dB away from the center; once it is non-zero the two fields below are de-emphasised and the score mostly tracks signal strength') }, _('RSSI weight')),
+				E('th', { 'title': _('The signal center the score is built around') }, _('RSSI center'))
 			])),
 			E('tbody', {}, bandRows)
 		]),
 		banners,
-		E('p', { 'class': 'nm-hint' }, 'To make scoring follow signal strength completely (the DAWN documentation\'s recommended approach), set "RSSI Weight" to 2 and "RSSI Midpoint" to -20 for all three bands, then set the good/poor signal bonuses and channel-utilization adjustments for that band to 0. Scoring then becomes Base Score + (RSSI - Midpoint) * Weight, so even APs that are close together with a 20 dB signal difference will select the better one instead of falling into the same range and receiving the same score.'),
+		E('p', { 'class': 'nm-hint' }, _('To make the score track signal strength exactly (the approach the DAWN docs recommend): set the "RSSI weight" of all three bands to 2 and the "RSSI center" to -20, and set the good/bad signal scores and the channel-utilization adjustments to 0 for that band. The score then reduces to base score + (RSSI − center) × weight, so even with two APs 20 dB apart the better one wins instead of both falling into the same bucket and scoring the same.')),
 		E('div', { 'class': 'nm-actions' }, [ saveBtn, startBtn ]),
-		E('p', { 'class': 'nm-hint' }, 'These settings are copied to peers by "Wired Sync" together with /etc/config/wireless, so both devices use the same scoring rules. Older peer firmware skips this step automatically. After SAVE, DAWN restarts once; in-progress AP switch decisions are interrupted, but clients do not disconnect.'),
-		E('p', { 'class': 'nm-hint' }, 'See who is connected to each AP and who is in whose coverage: ' , E('a', { 'href': L.url('admin/network/meshconf/steering') }, 'APs and Clients'))
+		E('p', { 'class': 'nm-hint' }, _('This configuration is carried to the peer together with /etc/config/wireless by "Wired sync", so both devices score identically; when the peer runs older firmware this step is skipped automatically. After SAVE, DAWN restarts once: an in-flight AP-change decision is interrupted but clients do not drop.')),
+		E('p', { 'class': 'nm-hint' }, _('See who is connected to each AP and who is in whose range:'), E('a', { 'href': L.url('admin/network/meshconf/steering') }, _('APs and clients')))
 	]);
 }
 
@@ -984,9 +1035,21 @@ return view.extend({
 
 		pageBody = E('div');
 
+		var refreshBtn = E('button', { 'class': 'cbi-button cbi-button-action' }, _('Refresh'));
+		refreshBtn.addEventListener('click', function() {
+			var self = refreshBtn, orig = self.textContent;
+			self.disabled = true;
+			self.textContent = _('Refreshing…');
+			var done = function() { self.disabled = false; self.textContent = orig; };
+			refresh().then(done, done);
+		});
+
+		updatedEl = E('span', { 'class': 'nm-muted' }, '');
+
 		var root = E('div', { 'class': 'meshconf-page' }, [
-			E('h2', {}, 'Mesh Networking'),
-			E('p', { 'class': 'nm-lede' }, 'Networking between two XR1710G devices: wireless uses native 802.11s; wired mode discovers peers on the same LAN and syncs /etc/config/wireless.'),
+			E('h2', {}, _('Mesh networking')),
+			E('p', { 'class': 'nm-lede' }, _('Networking between two XR1710G units: wireless uses native 802.11s; wired uses discovery on the same LAN plus /etc/config/wireless sync.')),
+			E('div', { 'class': 'nm-actions', 'style': 'margin-top:0;border-top:0;padding-top:0' }, [ refreshBtn, updatedEl ]),
 			pageBody
 		]);
 
