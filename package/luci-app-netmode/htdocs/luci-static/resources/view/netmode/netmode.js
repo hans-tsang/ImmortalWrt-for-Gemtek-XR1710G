@@ -65,6 +65,47 @@ var css = [
 
 var darkVars = ':root{--nm-bg:#1e1f22;--nm-border:#3a3d42;--nm-soft:#26282d;--nm-text:#f0f3f6;--nm-muted:#a7adb5;--nm-blue:#4d9cf6;--nm-green:#4ac26b;--nm-orange:#e3934a;--nm-red:#f47067}';
 
+function isDarkMode() {
+	/* Probe order matters: the first element with an opaque background wins.
+	 * - body carries the theme background in every LuCI theme.
+	 * - .main-left is Argon's sidebar: var(--menu-bg-color) (#ffffff) when
+	 *   light, #333333 when dark. It is the only other always-opaque surface
+	 *   Argon has, and it matters because Argon inlines css/dark.css into a
+	 *   <style> block (header.ut readfile()) instead of linking it, so the
+	 *   stylesheet fallback below can never match Argon.
+	 * - .main-content / #maincontent / .cbi-map are the bootstrap-era wrappers.
+	 * header is deliberately NOT probed: Argon paints it with var(--primary)
+	 * (#5e72e4, luminance ~121), which would read as dark in light mode. */
+	var els = [document.body, document.querySelector('.main-left'), document.querySelector('.main-right'),
+		document.querySelector('.main-content'), document.querySelector('#maincontent'), document.querySelector('.cbi-map')];
+	for (var i = 0; i < els.length; i++) {
+		if (!els[i]) continue;
+		/* Parse rgb()/rgba() explicitly. Matching with /\d+/g splits the
+		 * fractional alpha 0.6 into "0" and "6", so m[3] reads 0 and every
+		 * semi-transparent background is mistaken for a fully transparent one
+		 * and skipped - semi-transparent dark surfaces then fell through to the
+		 * stylesheet fallback and were reported as light. */
+		var bg = window.getComputedStyle(els[i]).backgroundColor;
+		var m = bg.match(/rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:[\s,/]+([\d.]+))?/i);
+		if (m) {
+			var a = m[4] === undefined ? 1 : parseFloat(m[4]);
+			if (a < 0.1) continue;
+			var lum = (parseFloat(m[1]) * 299 + parseFloat(m[2]) * 587 + parseFloat(m[3]) * 114) / 1000;
+			return lum < 128;
+		}
+	}
+	var sheets = document.querySelectorAll('link[href*="dark"], link[href*="glass"]');
+	if (sheets.length > 0) return true;
+	/* Last resort: follow the OS preference. This is exactly what Argon's
+	 * default mode='normal' does - it wraps the inlined dark.css in
+	 * @media (prefers-color-scheme: dark) - and it also covers any theme that
+	 * leaves every probed surface transparent. */
+	try {
+		if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return true;
+	} catch (e) {}
+	return false;
+}
+
 function injectCSS() {
 	var el = document.getElementById('netmode-css');
 	if (!el) {
@@ -72,10 +113,7 @@ function injectCSS() {
 		el.id = 'netmode-css';
 		document.head.appendChild(el);
 	}
-	var bg = window.getComputedStyle(document.body).backgroundColor;
-	var nums = bg.match(/\d+/g) || [];
-	var dark = nums.length >= 3 && ((+nums[0] * 299 + +nums[1] * 587 + +nums[2] * 114) / 1000) < 128;
-	el.textContent = css + (dark ? darkVars : '');
+	el.textContent = css + (isDarkMode() ? darkVars : '');
 }
 
 var MODE_LABELS = {
@@ -122,10 +160,10 @@ function statusPills(status) {
 		E('div', { 'class': 'nm-infogrid' }, [
 			infoCard(_('Device model'), status.board),
 			infoCard(_('Hostname'), status.hostname),
-			infoCard(_('Management address (LAN)'), status.lan_ip || _('Detecting...')),
+			infoCard(_('Management address (LAN)'), status.lan_ip || _('Loading…')),
 			isAp
 				? infoCard(_('WAN address'), _('Bridged to br-lan'))
-				: infoCard(_('WAN address'), status.wan_ip || _('Not acquired'))
+				: infoCard(_('WAN address'), status.wan_ip || _('Not obtained'))
 		])
 	]);
 }
@@ -147,7 +185,7 @@ return view.extend({
 
 		if (this.status.error)
 			root.appendChild(E('p', { 'class': 'alert-message error' },
-				_('Failed to read status: %s').format(this.status.error)));
+				_('Failed to load data') + ': ' + this.status.error));
 
 		this.statusBox = E('div', {}, statusPills(this.status));
 		root.appendChild(E('div', { 'class': 'nm-section' }, [
@@ -170,19 +208,19 @@ return view.extend({
 			'placeholder': '192.168.50.1'
 		});
 		this.pppoeUserInput = E('input', {
-			'type': 'text', 'autocomplete': 'off', 'placeholder': _('Broadband username')
+			'type': 'text', 'autocomplete': 'off', 'placeholder': _('Broadband account')
 		});
 		this.pppoePassInput = E('input', {
 			'type': 'password', 'autocomplete': 'new-password', 'placeholder': _('Broadband password')
 		});
 
 		root.appendChild(E('div', { 'class': 'nm-section' }, [
-			E('div', { 'class': 'nm-title' }, _('One-click switching')),
-			E('p', { 'class': 'nm-subtitle' }, _('Click any mode card to switch. Changes take effect immediately.')),
+			E('div', { 'class': 'nm-title' }, _('One-click switch')),
+			E('p', { 'class': 'nm-subtitle' }, _('Click any mode card to switch; the change takes effect immediately.')),
 			E('div', { 'class': 'nm-grid' }, [
-				this.modeCard('ap', _('AP mode'), _('Bridges the WAN port into br-lan. The upstream router assigns the address; this device only bridges.'), mode === 'ap'),
-				this.modeCard('dhcp', _('DHCP router'), _('The WAN port obtains an upstream address automatically. This device provides NAT and DHCP.'), mode === 'dhcp'),
-				this.modeCard('pppoe', _('PPPoE dial-up'), _('The WAN port dials using the broadband username and password. This device provides NAT and DHCP.'), mode === 'pppoe')
+				this.modeCard('ap', _('AP mode'), _('The WAN port joins br-lan; the upstream router assigns the address and this device only bridges.'), mode === 'ap'),
+				this.modeCard('dhcp', _('DHCP router'), _('The WAN port obtains an upstream address automatically; this device provides NAT and DHCP.'), mode === 'dhcp'),
+				this.modeCard('pppoe', _('PPPoE dial-up'), _('The WAN port dials with the broadband account and password; this device provides NAT and DHCP.'), mode === 'pppoe')
 			]),
 			E('div', { 'class': 'nm-formbox' }, [
 				E('div', { 'class': 'nm-form' }, [
@@ -190,18 +228,27 @@ return view.extend({
 						E('label', {}, _('LAN IP')), this.lanIpInput
 					]),
 					E('div', { 'class': 'nm-field' }, [
-						E('label', {}, _('PPPoE username')), this.pppoeUserInput
+						E('label', {}, _('PPPoE account')), this.pppoeUserInput
 					]),
 					E('div', { 'class': 'nm-field' }, [
 						E('label', {}, _('PPPoE password')), this.pppoePassInput
 					])
 				]),
-				E('p', { 'class': 'nm-hint' }, _('In AP mode, the LAN IP is the address used to access this device. Leave empty to let the upstream router assign it automatically.')),
-				E('p', { 'class': 'nm-hint' }, _('In router mode, the LAN IP is the gateway. Leave empty to use 192.168.50.1. PPPoE username and password are only needed in PPPoE mode.'))
+				E('p', { 'class': 'nm-hint' }, _('In AP mode the LAN IP is the address used to reach this device; leave it blank to let the upstream router assign one.')),
+				E('p', { 'class': 'nm-hint' }, _('In router mode the LAN IP is the gateway; leave it blank to use 192.168.50.1. The PPPoE account and password are only needed in PPPoE mode.'))
 			])
 		]));
 
+		this.updatedEl = E('p', { 'class': 'nm-muted', 'style': 'margin:14px 0 0;text-align:right;font-size:12px' }, '');
+		root.appendChild(this.updatedEl);
+		this.markUpdated();
+
 		return root;
+	},
+
+	markUpdated: function() {
+		if (this.updatedEl)
+			this.updatedEl.textContent = _('Updated %s').format(new Date().toLocaleTimeString());
 	},
 
 	modeCard: function(mode, title, desc, active) {
@@ -220,28 +267,28 @@ return view.extend({
 
 	confirmMode: function(mode, title) {
 		var summary = ({
-			ap: _('Bridges the WAN port into br-lan. This device will use an upstream-assigned address and disable DHCP.'),
-			dhcp: _('The WAN port obtains an upstream address automatically. LAN uses a static address and enables DHCP.'),
-			pppoe: _('The WAN port dials for internet access. LAN uses a static address and enables DHCP.')
+			ap: _('The WAN port joins br-lan; this device takes an address from the upstream router and disables DHCP.'),
+			dhcp: _('The WAN port obtains an upstream address automatically; the LAN uses a static address with DHCP enabled.'),
+			pppoe: _('The WAN port dials up; the LAN uses a static address with DHCP enabled.')
 		})[mode];
 
 		var addresses = this.status.addresses || [];
 		var notice = mode === 'ap'
 			? (addresses.length
-				? _('The current management address %s will become invalid and be replaced by an upstream-assigned address.')
+				? _('The current management address %s will stop working; the upstream router will assign a new one.')
 					.format(addresses.map(function(i) { return i.address; }).join(', '))
 				: _('The management address will be assigned by the upstream router.'))
 			: '';
 
 		if (mode === 'pppoe' && !(this.pppoeUserInput.value || '').trim()) {
-			ui.addNotification(null, E('p', _('Enter the PPPoE username first.')));
+			ui.addNotification(null, E('p', _('Please enter the PPPoE account first.')));
 			return;
 		}
 
 		return ui.showModal(_('Switch to %s').format(title), [
 			E('p', {}, summary),
 			notice ? E('div', { 'class': 'nm-alert' }, notice) : '',
-			E('p', { 'class': 'nm-muted' }, _('The configuration will take effect immediately and reload the network.')),
+			E('p', { 'class': 'nm-muted' }, _('The configuration takes effect immediately and the network will be reloaded.')),
 			E('div', { 'class': 'right' }, [
 				E('button', {
 					'class': 'cbi-button cbi-button-apply',
@@ -287,7 +334,7 @@ return view.extend({
 	// the static LAN address again. The page we are currently on goes away in
 	// both cases, so waiting is the only sane reaction: stay quiet while the
 	// reload is in flight (probing during that window is what used to raise a
-	// bogus "Apply failed"), then poll for up to 90s and show a countdown the
+	// bogus "apply failed"), then poll for up to 90s and show a countdown the
 	// whole time. Real validation errors still arrive as {"success":false}
 	// and are reported immediately.
 	// ---------------------------------------------------------------------
@@ -302,27 +349,27 @@ return view.extend({
 		var copy = ({
 			ap: {
 				title: _('AP mode applied'),
-				doing: _('Configuration submitted successfully. The device is switching to AP mode.'),
-				why: _('Switching changes the management address to one assigned by the upstream DHCP router. This page may disconnect normally and does not indicate failure.'),
+				doing: _('Configuration submitted; the device is switching to AP mode.'),
+				why: _('The switch changes the management address to an upstream DHCP lease; this page disconnecting is expected and does not mean failure.'),
 				done: _('The device is now in AP mode.')
 			},
 			dhcp: {
 				title: _('DHCP router mode applied'),
-				doing: _('Configuration submitted successfully. The device is switching to DHCP router mode.'),
-				why: _('Switching changes the management address back to the LAN static address. This page may disconnect normally and does not indicate failure.'),
+				doing: _('Configuration submitted; the device is switching to DHCP router mode.'),
+				why: _('The switch changes the management address back to the static LAN address; this page disconnecting is expected and does not mean failure.'),
 				done: _('The device is now in DHCP router mode.')
 			},
 			pppoe: {
 				title: _('PPPoE router mode applied'),
-				doing: _('Configuration submitted successfully. The device is switching to PPPoE router mode.'),
-				why: _('Switching changes the management address back to the LAN static address. This page may disconnect normally and does not indicate failure.'),
+				doing: _('Configuration submitted; the device is switching to PPPoE router mode.'),
+				why: _('The switch changes the management address back to the static LAN address; this page disconnecting is expected and does not mean failure.'),
 				done: _('The device is now in PPPoE router mode.')
 			}
 		})[mode] || {
 			title: _('Configuration applied'),
-			doing: _('Configuration submitted successfully. The device is switching internet mode.'),
-			why: _('Switching changes the management address. This page may disconnect normally and does not indicate failure.'),
-			done: _('The device has completed the switch.')
+			doing: _('Configuration submitted; the device is switching internet mode.'),
+			why: _('The switch changes the management address; this page disconnecting is expected and does not mean failure.'),
+			done: _('The device has finished switching.')
 		};
 
 		var TOTAL = 90, SILENT = 12, PROBE_EVERY = 3;
@@ -332,7 +379,7 @@ return view.extend({
 		var self = this;
 
 		var bar = E('span', {});
-		var statusEl = E('p', { 'class': 'nm-muted' }, _('Configuration submitted. Network services are reloading...'));
+		var statusEl = E('p', { 'class': 'nm-muted' }, _('Configuration submitted; the network service is reloading…'));
 		var resultBox = E('div', {}, '');
 
 		var elapsed = function() { return Math.round((Date.now() - started) / 1000); };
@@ -344,7 +391,7 @@ return view.extend({
 			statusEl.textContent = copy.done;
 			resultBox.innerHTML = '';
 			resultBox.appendChild(E('div', { 'class': 'nm-alert ok' },
-				_('Device detected. Current management address: %s').format(st.lan_ip || '-')));
+				_('Device detected; current management address: %s').format(st.lan_ip || '-')));
 			resultBox.appendChild(E('div', { 'class': 'nm-goto' }, [
 				E('button', {
 					'class': 'cbi-button cbi-button-apply',
@@ -356,7 +403,7 @@ return view.extend({
 				E('button', {
 					'class': 'cbi-button cbi-button-neutral',
 					'click': function() { window.location.reload(); }
-				}, _('Refresh page'))
+				}, _('Reload page'))
 			]));
 		};
 
@@ -368,7 +415,7 @@ return view.extend({
 					showSuccess(st);
 					return;
 				}
-				statusEl.textContent = _('Device is responding. Waiting for mode switch to complete... (%d seconds remaining)').format(remain());
+				statusEl.textContent = _('The device is responding; waiting for the mode switch to finish… (%d s left)').format(remain());
 			}).catch(function() {
 				// address not answering yet, which is the normal case while
 				// the interface is being reconfigured
@@ -380,16 +427,16 @@ return view.extend({
 			var wanIp = (self.status && self.status.wan_ip) || '';
 			statusEl.textContent = _('Automatic detection timed out.');
 			resultBox.innerHTML = '';
-			resultBox.appendChild(E('p', {}, _('Configuration was applied successfully, but the device could not be found again at the current address.')));
+			resultBox.appendChild(E('p', {}, _('The configuration was applied, but the device could not be found at the current address.')));
 			if (isAp) {
 				resultBox.appendChild(E('p', {}, wanIp
-					? _('The new address is assigned by the upstream router and is usually in the same subnet as the previous WAN address %s. Look for hostname "%s" or the MAC address in the upstream router DHCP leases.')
+					? _('The new address is assigned by the upstream router, usually on the same subnet as the previous WAN address %s; look it up by hostname "%s" or MAC in the DHCP leases of the upstream router.')
 						.format(wanIp, host)
-					: _('The new address is assigned by the upstream router. Look for hostname "%s" or the MAC address in the upstream router DHCP leases.').format(host)));
+					: _('The new address is assigned by the upstream router; look it up by hostname "%s" or MAC in the DHCP leases of the upstream router.').format(host)));
 			}
 			else {
 				resultBox.appendChild(E('p', {},
-					_('The new address is LAN static address %s. Ensure the cable is connected to a LAN port and this computer is set to obtain an address automatically (DHCP).').format(lanIp)));
+					_('The new address is the static LAN address %s; make sure the cable is in a LAN port and the computer is set to obtain an address automatically (DHCP).').format(lanIp)));
 			}
 
 			var input = E('input', { 'type': 'text', 'placeholder': isAp ? '192.168.1.x' : lanIp });
@@ -402,7 +449,7 @@ return view.extend({
 						if (!v) return;
 						window.location.href = window.location.protocol + '//' + v + '/';
 					}
-				}, _('Open this address'))
+				}, _('Open with this address'))
 			]));
 		};
 
@@ -415,14 +462,14 @@ return view.extend({
 				return;
 			}
 			if (e < SILENT) {
-				statusEl.textContent = _('Still waiting for device... (detection starts in %d seconds, %d seconds remaining)').format(SILENT - e, TOTAL - e);
+				statusEl.textContent = _('Still waiting for the device… (probing starts in %d s, %d s left)').format(SILENT - e, TOTAL - e);
 			} else {
 				if (e - lastProbe >= PROBE_EVERY) {
 					lastProbe = e;
 					probe();
 				}
 				if (!state.done)
-					statusEl.textContent = _('Still waiting for device... (%d seconds remaining)').format(TOTAL - e);
+					statusEl.textContent = _('Still waiting for the device… (%d s left)').format(TOTAL - e);
 			}
 			setTimeout(tick, 1000);
 		};
@@ -452,6 +499,7 @@ return view.extend({
 				this.statusBox.innerHTML = '';
 				this.statusBox.appendChild(statusPills(this.status));
 			}
+			this.markUpdated();
 		}, this));
 	}
 });
