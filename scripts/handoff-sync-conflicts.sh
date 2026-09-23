@@ -45,14 +45,24 @@ fi
 branch="sync-conflict/$(date -u +%Y%m%d-%H%M%S)"
 
 # Commit the conflicted tree as-is.  The markers are intentionally kept: they
-# are the very thing the agent has to resolve.
+# are the very thing the agent has to resolve.  When the merge itself succeeded
+# the tree is already clean and committed, so there is nothing to add and
+# `git commit` would fail; the existing merge commit is handed off instead.
 git add -A
-git commit -q --no-verify -m "chore: upstream sync pending manual resolution
+if git diff --cached --quiet; then
+  if [ "$(git rev-parse HEAD)" = "$(git rev-parse "origin/$TARGET_BRANCH" 2>/dev/null || echo none)" ]; then
+    echo "::error::Nothing to hand off: the working tree is clean and HEAD already matches origin/$TARGET_BRANCH."
+    exit 1
+  fi
+  echo "Working tree is clean, handing off the existing merge commit."
+else
+  git commit -q --no-verify -m "chore: upstream sync pending manual resolution
 
 Conflicted files:
 $conflicts
 
 Produced by $RUN_URL"
+fi
 
 if ! git push origin "HEAD:refs/heads/$branch"; then
   echo "::error::Could not push the conflict branch $branch."
