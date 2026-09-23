@@ -66,18 +66,19 @@ merge_hunks_preferring_ours() {
 
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' RETURN
 
   # Stage 1/2/3 are base/ours/theirs.  A missing stage means the file was
   # added or deleted on one side, which cannot be merged hunk-wise.
   if ! git show ":1:$path" > "$tmp/base" 2>/dev/null ||
      ! git show ":2:$path" > "$tmp/ours" 2>/dev/null ||
      ! git show ":3:$path" > "$tmp/theirs" 2>/dev/null; then
+    rm -rf "$tmp"
     return 0
   fi
 
   git merge-file --ours -p "$tmp/ours" "$tmp/base" "$tmp/theirs" > "$path"
   git add -- "$path"
+  rm -rf "$tmp"
 }
 
 # A conflicting path that no longer exists on our side was removed on purpose
@@ -187,9 +188,44 @@ take_upstream_translations() {
   done <<< "$paths"
 }
 
+# Mirror image of take_upstream_translations: upstream reworded the Chinese
+# text of a file that this fork had already translated.  Our side carries the
+# same change in English, while the upstream side is still Chinese and would be
+# rejected by scripts/enforce-no-chinese.sh right after the merge.  Keeping the
+# local English wording is therefore the only resolution that can ever pass, so
+# it is applied automatically instead of stalling the sync.
+keep_local_translations() {
+  local path paths
+  paths="$(unmerged_paths)"
+
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+
+    if ! git show ":1:$path" > /dev/null 2>&1 ||
+       ! git show ":2:$path" > /dev/null 2>&1 ||
+       ! git show ":3:$path" > /dev/null 2>&1; then
+      continue
+    fi
+
+    if ! git show ":1:$path" | has_chinese; then
+      continue
+    fi
+    if git show ":2:$path" | has_chinese; then
+      continue
+    fi
+    if ! git show ":3:$path" | has_chinese; then
+      continue
+    fi
+
+    echo "Keeping local translation of: $path"
+    merge_hunks_preferring_ours "$path"
+  done <<< "$paths"
+}
+
 take_ours README.md
 keep_policy_deletions
 accept_upstream_removals
 take_upstream_translations
+keep_local_translations
 merge_hunks_preferring_ours 1710.config
 merge_hunks_preferring_ours 2010.config

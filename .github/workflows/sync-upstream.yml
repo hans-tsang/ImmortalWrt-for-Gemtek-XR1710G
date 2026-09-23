@@ -8,6 +8,7 @@ on:
 permissions:
   contents: write
   issues: write
+  pull-requests: write
 
 concurrency:
   group: upstream-sync-master
@@ -67,8 +68,15 @@ jobs:
 
       - name: Enforce no-Chinese content
         if: steps.check.outputs.has_updates == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.COPILOT_ASSIGN_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
-          bash scripts/enforce-no-chinese.sh
+          if ! bash scripts/enforce-no-chinese.sh; then
+            echo "The merged tree still violates the no-Chinese policy - handing it to the Copilot coding agent."
+            HANDOFF_REASON="Upstream added Chinese text that merged cleanly and still needs to be translated." \
+              bash scripts/handoff-sync-conflicts.sh
+            exit 1
+          fi
           if ! git diff --quiet; then
             git add -A
             git commit -m "chore: enforce no-Chinese content policy"
