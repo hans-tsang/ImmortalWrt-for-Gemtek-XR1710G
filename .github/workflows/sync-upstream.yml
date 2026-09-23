@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 concurrency:
   group: upstream-sync-master
@@ -50,13 +51,15 @@ jobs:
 
       - name: Merge upstream
         if: steps.check.outputs.has_updates == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.COPILOT_ASSIGN_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           git merge --no-edit upstream/master || {
             echo "Merge reported conflicts, attempting automatic resolution for local customizations."
             bash scripts/resolve-sync-conflicts.sh
             if git diff --name-only --diff-filter=U | grep -q .; then
-              echo "::error::Merge failed. Conflicts need manual resolution."
-              git diff --name-only --diff-filter=U
+              echo "::error::Merge failed. Handing the conflicts to the Copilot coding agent."
+              bash scripts/handoff-sync-conflicts.sh
               exit 1
             fi
             git commit --no-edit
