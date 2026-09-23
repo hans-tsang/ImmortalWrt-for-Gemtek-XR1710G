@@ -9,6 +9,7 @@
 # VERSION_NUMBER is enabled by default, which keeps the image name short while
 # still identifying the build.
 #
+<<<<<<< HEAD
 # Environment overrides:
 #   VERSION_DIST            distribution name (default "ImmortalWrt naoki66")
 #   BUILD_TZ                time zone used for the date (default Asia/Shanghai)
@@ -18,11 +19,41 @@
 #   VERSION_NUMBER / VERSION_CODE / EXTRA_IMAGE_NAME  explicit name parts
 #   VERSION_FILENAMES       put the version number in the file name (default y)
 #   VERSION_CODE_FILENAMES  put the revision in the file name (default: empty = no)
+=======
+# 可用环境变量覆盖：
+#   VERSION_DIST            发行版名（默认 "ImmortalWrt naoki66"，若能从
+#                           CONFIG_TARGET_PROFILE 推导出设备型号则追加，如
+#                           "ImmortalWrt naoki66 XG2010G" / "ImmortalWrt naoki66 XR1710G"）
+#   BUILD_TZ                日期时区（默认 Asia/Shanghai）
+#   BUILD_DATE / BUILD_TIME 构建日期 YYYYMMDD（默认取当前时间）
+#   REPO_COMMIT / UPSTREAM_COMMIT / BUILD_ID  手动指定 commit / 构建号
+#   COMMIT_LEN              commit 缩写长度（默认 8）
+#   VERSION_NUMBER / VERSION_CODE / EXTRA_IMAGE_NAME  手动指定各段
+#   VERSION_FILENAMES       是否把版本号放进文件名（默认 y）
+#   VERSION_CODE_FILENAMES  是否把 revision 放进文件名（默认 空 = 不放）
+>>>>>>> upstream/master
 
 set -euo pipefail
 
 config_file="${1:-.config}"
-version_dist="${VERSION_DIST:-ImmortalWrt naoki66}"
+
+# 从 CONFIG_TARGET_PROFILE 推导设备型号，写入 VERSION_DIST 让固件自识别。
+# 例：DEVICE_gemtek_xg2010g-ubi -> XG2010G；DEVICE_gemtek_xr1710g-ubi -> XR1710G
+# 推导不到时返回空串（保持原默认 "ImmortalWrt naoki66"）。
+detect_device_model() {
+	local profile model
+	profile="$(sed -n -e 's/^CONFIG_TARGET_PROFILE="\(.*\)"$/\1/p' "$config_file" | head -n 1)"
+	[ -n "$profile" ] || profile="$(sed -n -e 's/^CONFIG_TARGET_PROFILE=\(.*\)$/\1/p' "$config_file" | head -n 1)"
+	[[ "$profile" =~ DEVICE_([A-Za-z0-9_+-]+) ]] || return 1
+	model="${BASH_REMATCH[1]}"
+	model="${model#gemtek_}"
+	model="${model%-ubi}"
+	[ -n "$model" ] || return 1
+	printf '%s' "$model" | tr '[:lower:]' '[:upper:]'
+}
+
+device_model="$(detect_device_model || true)"
+version_dist="${VERSION_DIST:-ImmortalWrt naoki66${device_model:+ $device_model}}"
 build_tz="${BUILD_TZ:-Asia/Shanghai}"
 commit_len="${COMMIT_LEN:-8}"
 version_filenames="${VERSION_FILENAMES:-y}"
