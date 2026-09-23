@@ -4,13 +4,15 @@
 # over to the Copilot coding agent instead of just failing the job.
 #
 # The conflicted merge (conflict markers and all) is committed on a throw-away
-# branch and pushed, then an issue is opened that points at that branch and is
-# assigned to Copilot, so the agent can open a pull request with the resolution.
+# branch and pushed.  The agent is then started directly with `gh agent-task
+# create`, which opens a pull request off that branch; this works even when the
+# repository has issues disabled.  Only when that is not available does the
+# script fall back to opening an issue assigned to Copilot.
 #
 # Requires the calling workflow to grant `contents: write` and `issues: write`
-# and to export GH_TOKEN (or GITHUB_TOKEN).  Assigning the Copilot agent needs a
-# token whose owner has Copilot enabled; when the assignment is not possible the
-# issue is still created and only mentions @copilot, so nothing is lost.
+# and to export GH_TOKEN (or GITHUB_TOKEN).  Starting the Copilot agent needs a
+# token whose owner has Copilot enabled; when neither hand-off route works the
+# conflict branch is still pushed, so nothing is lost.
 
 set -euo pipefail
 
@@ -67,20 +69,31 @@ Failing workflow run: $RUN_URL
 
 @copilot please resolve this:
 
-1. Check out \`$branch\`.
+1. Work on \`$branch\`; check it out first if you are not already based on it.
 2. Resolve every conflict, honouring this fork's customizations: the local
    English \`README.md\` wins, \`1710.config\` / \`2010.config\` keep the local
    build options but pick up new upstream entries, and files removed by
-   \`scripts/enforce-no-chinese.sh\` stay removed.
+   \`scripts/enforce-no-chinese.sh\` stay removed.  When upstream changed a file
+   that this fork only translated, keep the upstream behaviour but write its
+   comments and strings in English.
 3. Remove all conflict markers and run \`bash scripts/enforce-no-chinese.sh\`.
 4. If the conflict is one that recurs on every sync, teach
    \`scripts/resolve-sync-conflicts.sh\` to handle it so the next sync is automatic.
-5. Open a pull request against \`$TARGET_BRANCH\`.
+5. Open a pull request with the resolved merge so it can land on \`$TARGET_BRANCH\`.
 EOF
 )"
 
+# Preferred route: start the coding agent directly on the conflict branch.  It
+# needs neither issues nor an assignable Copilot actor, which is why it is tried
+# before the issue based hand-off.
+if gh agent-task create --repo "$REPO" --base "$branch" -F - <<< "$body"; then
+  echo "Started a Copilot coding agent task on $branch."
+  exit 1
+fi
+echo "::warning::Could not start a Copilot coding agent task, falling back to an issue."
+
 issue_url="$(gh issue create --repo "$REPO" --title "$title" --body "$body")" || {
-  echo "::error::Could not create the sync conflict issue."
+  echo "::error::Could not hand the sync conflicts to Copilot: starting an agent task failed and the issue could not be created (issues may be disabled for this repository). Resolve $branch manually."
   exit 1
 }
 echo "Opened $issue_url"
