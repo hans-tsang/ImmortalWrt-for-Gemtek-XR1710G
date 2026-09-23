@@ -55,13 +55,24 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.COPILOT_ASSIGN_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
+          handoff_and_stop() {
+            local reason="${1:-}"
+            if [ -n "$reason" ]; then
+              if ! HANDOFF_REASON="$reason" bash scripts/handoff-sync-conflicts.sh; then
+                echo "::warning::The sync-conflict branch was pushed, but GitHub Actions could not open a PR or issue automatically."
+              fi
+            elif ! bash scripts/handoff-sync-conflicts.sh; then
+              echo "::warning::The sync-conflict branch was pushed, but GitHub Actions could not open a PR or issue automatically."
+            fi
+            echo "SYNC_BLOCKED=1" >> "$GITHUB_ENV"
+            exit 0
+          }
           git merge --no-edit upstream/master || {
             echo "Merge reported conflicts, attempting automatic resolution for local customizations."
             bash scripts/resolve-sync-conflicts.sh
             if git diff --name-only --diff-filter=U | grep -q .; then
               echo "::error::Merge failed. Handing the conflicts to the Copilot coding agent."
-              bash scripts/handoff-sync-conflicts.sh
-              exit 1
+              handoff_and_stop
             fi
             git commit --no-edit
           }
@@ -71,11 +82,18 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.COPILOT_ASSIGN_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
+          if [ "${SYNC_BLOCKED:-}" = "1" ]; then
+            echo "Sync was already handed off on a sync-conflict branch; skipping no-Chinese enforcement."
+            exit 0
+          fi
           if ! bash scripts/enforce-no-chinese.sh; then
             echo "The merged tree still violates the no-Chinese policy - handing it to the Copilot coding agent."
-            HANDOFF_REASON="Upstream added Chinese text that merged cleanly and still needs to be translated." \
-              bash scripts/handoff-sync-conflicts.sh
-            exit 1
+            if ! HANDOFF_REASON="Upstream added Chinese text that merged cleanly and still needs to be translated." \
+              bash scripts/handoff-sync-conflicts.sh; then
+              echo "::warning::The sync-conflict branch was pushed, but GitHub Actions could not open a PR or issue automatically."
+            fi
+            echo "SYNC_BLOCKED=1" >> "$GITHUB_ENV"
+            exit 0
           fi
           if ! git diff --quiet; then
             git add -A
@@ -85,6 +103,10 @@ jobs:
       - name: Push to origin
         if: steps.check.outputs.has_updates == 'true'
         run: |
+          if [ "${SYNC_BLOCKED:-}" = "1" ]; then
+            echo "Sync was already handed off on a sync-conflict branch; skipping push to origin."
+            exit 0
+          fi
           for attempt in 1 2 3; do
             if git push origin HEAD:master; then
               exit 0
