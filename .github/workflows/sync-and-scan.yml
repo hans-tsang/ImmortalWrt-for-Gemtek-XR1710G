@@ -30,6 +30,11 @@ on:
         required: false
         default: true
         type: boolean
+      full_scan:
+        description: Run the slow EMBA modules (Ghidra, CWE checker, JtR, qemu emulation)
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -37,6 +42,7 @@ permissions:
   pull-requests: write
 
 concurrency:
+  # never cancel a running sync/build/scan - a cancelled EMBA scan wastes hours
   group: upstream-sync-master
   cancel-in-progress: false
 
@@ -206,8 +212,16 @@ jobs:
   scan-firmware:
     needs: build-firmware
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    # 360 minutes is the GitHub-hosted Linux maximum; the previous 180 minute
+    # limit cancelled scans in the middle of the long running EMBA modules.
+    timeout-minutes: 360
     steps:
+      - name: Checkout fork (scan profiles)
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 1
+
       - name: Download built firmware
         uses: actions/download-artifact@v4
         with:
@@ -223,13 +237,24 @@ jobs:
       - name: Run EMBA installer (non-interactive)
         run: |
           cd emba
-          sudo ./installer.sh -d || true
+          if ! sudo ./installer.sh -d; then
+            echo "::warning::The EMBA installer reported errors — CVE database results may be incomplete."
+          fi
 
       - name: Run EMBA scan
+        env:
+          FULL_SCAN: ${{ github.event_name == 'workflow_dispatch' && inputs.full_scan }}
         run: |
+          cp scan-profiles/ci-fast-scan.emba emba/scan-profiles/
           cd emba
           FIRMWARE_FILE=$(find ../scan-input -type f | head -n1)
-          sudo ./emba -f "$FIRMWARE_FILE" -l ../emba-report -p ./scan-profiles/default-scan.emba
+          if [ "$FULL_SCAN" = "true" ]; then
+            PROFILE=./scan-profiles/default-scan.emba
+          else
+            PROFILE=./scan-profiles/ci-fast-scan.emba
+          fi
+          echo "Using EMBA profile $PROFILE"
+          sudo ./emba -f "$FIRMWARE_FILE" -l ../emba-report -p "$PROFILE"
 
       - name: Upload EMBA report
         uses: actions/upload-artifact@v4
