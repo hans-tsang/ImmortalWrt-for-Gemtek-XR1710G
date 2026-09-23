@@ -38,6 +38,15 @@ is_unmerged() {
   git ls-files --unmerged -- "$1" | grep -q .
 }
 
+# Lists the still conflicting paths.  The list is materialised completely
+# before it is used, because `git diff` refreshes and rewrites the index: when
+# it is read through a pipe or a process substitution it is still running while
+# the loop body calls `git rm`/`git add`, and both processes then fight over
+# .git/index.lock.
+unmerged_paths() {
+  git ls-files --unmerged | awk '{ print $4 }' | sort -u
+}
+
 # Reads a file from stdin and succeeds when it contains CJK ideographs or
 # CJK/full-width punctuation.  The pattern only compiles in a UTF-8 locale.
 has_chinese() {
@@ -78,7 +87,8 @@ merge_hunks_preferring_ours() {
 # text, so the resolution can never re-introduce content that the following
 # enforcement step would reject anyway.
 keep_policy_deletions() {
-  local path
+  local path paths
+  paths="$(unmerged_paths)"
 
   while IFS= read -r path; do
     [ -n "$path" ] || continue
@@ -91,7 +101,7 @@ keep_policy_deletions() {
       echo "Keeping local deletion of Chinese file: $path"
       git rm -q -f -- "$path"
     fi
-  done < <(git diff --name-only --diff-filter=U)
+  done <<< "$paths"
 }
 
 # True when one of the path's ancestor directories exists on our side but was
@@ -118,9 +128,10 @@ upstream_removed_tree() {
 # would resurrect a package that upstream no longer builds, so the removal is
 # accepted whenever the whole directory disappeared upstream.
 accept_upstream_removals() {
-  local path
+  local path paths
 
   git rev-parse --quiet --verify MERGE_HEAD > /dev/null 2>&1 || return 0
+  paths="$(unmerged_paths)"
 
   while IFS= read -r path; do
     [ -n "$path" ] || continue
@@ -138,7 +149,7 @@ accept_upstream_removals() {
       echo "Accepting upstream removal of $path"
       git rm -q -f -- "$path"
     fi
-  done < <(git diff --name-only --diff-filter=U)
+  done <<< "$paths"
 }
 
 # The fork translates the user-visible strings of the local LuCI applications.
@@ -147,7 +158,8 @@ accept_upstream_removals() {
 # and neither side does any more, the local change was only a translation of
 # that text, so the upstream wording is taken and the files stop diverging.
 take_upstream_translations() {
-  local path
+  local path paths
+  paths="$(unmerged_paths)"
 
   while IFS= read -r path; do
     [ -n "$path" ] || continue
@@ -172,7 +184,7 @@ take_upstream_translations() {
     echo "Taking upstream translation of: $path"
     git checkout --theirs -- "$path"
     git add -- "$path"
-  done < <(git diff --name-only --diff-filter=U)
+  done <<< "$paths"
 }
 
 take_ours README.md
