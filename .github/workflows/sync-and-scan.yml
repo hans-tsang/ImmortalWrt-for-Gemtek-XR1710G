@@ -256,11 +256,22 @@ jobs:
           echo "Using EMBA profile $PROFILE"
           sudo ./emba -f "$FIRMWARE_FILE" -l ../emba-report -p "$PROFILE"
 
+      - name: Package EMBA report
+        if: always()
+        run: |
+          if [ -d emba-report ]; then
+            tar -C emba-report -czf emba-report.tar.gz .
+          else
+            echo "::warning::EMBA report directory was not created."
+          fi
+
       - name: Upload EMBA report
+        if: always() && hashFiles('emba-report.tar.gz') != ''
         uses: actions/upload-artifact@v4
         with:
           name: emba-report
-          path: emba-report/
+          path: emba-report.tar.gz
+          if-no-files-found: error
           retention-days: 30
 
       - name: Check for high severity findings
