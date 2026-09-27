@@ -189,6 +189,73 @@ define Device/nokia_xg-040g-md-ubi
 endef
 TARGET_DEVICES += nokia_xg-040g-md-ubi
 
+<<<<<<< HEAD
+=======
+define Device/gemtek_xr1710g-ubi
+  DEVICE_VENDOR := Gemtek
+  DEVICE_MODEL := XR1710G
+  DEVICE_VARIANT := UBI
+  DEVICE_ALT0_VENDOR := Brightspeed
+  DEVICE_ALT0_MODEL := XR1710G
+  DEVICE_ALT0_VARIANT := UBI
+  SUPPORTED_DEVICES := gemtek,xr1710g-ubi
+  DEVICE_DTS := an7581-xr1710g-ubi
+  DEVICE_PACKAGES := airoha-en7581-mt7996-npu-firmware airoha-an7581-mt7996-board \
+		    kmod-nf-conntrack-bridge kmod-nft-bridge \
+		    fitblk uboot-envtools kmod-airoha-i2c \
+		    kmod-hwmon-nct7802 kmod-mt7996-firmware wpad-mbedtls \
+		    rtl826x-firmware px5g-mbedtls \
+		    -kmod-airoha-tod -kmod-airoha-en7581-pcm-spi
+  UBINIZE_OPTS := -E 5
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  UBOOTENV_IN_UBI := 1
+  KERNEL_IN_UBI := 1
+  KERNEL := kernel-bin | gzip
+  KERNEL_INITRAMFS := kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 128k
+  KERNEL_INITRAMFS_SUFFIX := -recovery.itb
+  IMAGES := sysupgrade.itb
+  IMAGE/sysupgrade.itb := append-kernel | fit gzip $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb external-static-with-rootfs | append-metadata
+  SOC := an7581
+endef
+TARGET_DEVICES += gemtek_xr1710g-ubi
+
+define Device/gemtek_xg2010g-ubi
+  DEVICE_VENDOR := Gemtek
+  DEVICE_MODEL := XG2010G
+  DEVICE_VARIANT := UBI
+  DEVICE_DTS := an7581-gemtek-xg2010g-ubi
+  DEVICE_COMPAT_VERSION := 2.0
+  DEVICE_COMPAT_MESSAGE := Firmware must use the XG2010G UBI layout with \
+       the fit volume inside the ubi partition at 0x00600000. Upgrade only \
+       the ubi partition and keep bootloader, uenv, dsd and reserved_bmt intact.
+  DEVICE_PACKAGES := fitblk kmod-leds-gpio kmod-gpio-button-hotplug \
+	kmod-phy-airoha-en8811h \
+	kmod-nf-conntrack-bridge kmod-nft-bridge \
+	kmod-airoha-en7572 kmod-airoha-xpon airoha-ponctl airoha-pond \
+	kmod-airoha-tod kmod-airoha-en7581-pcm-spi \
+	-airoha-an7581-mt7996-board -airoha-en7581-mt7996-npu-firmware \
+	-kmod-mac80211 -kmod-mt7996-firmware -kmod-mt7996e \
+	-wpad-mbedtls -wpad-mesh-mbedtls -wireless-regdb
+  BLOCKSIZE := 128k
+  PAGESIZE := 2048
+  UBINIZE_OPTS := -E 5
+  KERNEL_IN_UBI := 1
+  KERNEL := kernel-bin | gzip
+  KERNEL_INITRAMFS := kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 128k
+  KERNEL_INITRAMFS_SUFFIX := -recovery.itb
+  IMAGES := sysupgrade.itb
+  IMAGE/sysupgrade.itb := append-kernel | \
+	fit gzip $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb external-static-with-rootfs | \
+	append-metadata
+  SUPPORTED_DEVICES := gemtek,xg2010g-ubi gemtek,xg2010g
+  SOC := an7581
+endef
+TARGET_DEVICES += gemtek_xg2010g-ubi
+
+>>>>>>> upstream/master
 define Device/quantum_q1000k-ubi
   DEVICE_VENDOR := Quantum Fiber
   DEVICE_MODEL := Q1000K
