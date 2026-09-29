@@ -3,17 +3,13 @@
 'require view.airoha.ds-tokens as tokens';
 
 /* ---------------------------------------------------------------------------
- * Shared UI kit for the merged Airoha views.
+ * Shared UI kit for the unified Airoha status view.
  *
- * Both view/airoha_npu/status.js and view/airoha_flowsense/status.js build
- * their DOM through this module so the two tabs share one component look and
- * one set of builders instead of each shipping its own stylesheet, its own
- * dark-mode detector and its own hand-rolled markup (the pre-merge views each
- * carried ~90 duplicated CSS lines, a runtime `isDarkMode()` probe and inline
- * style attributes).
+ * view/airoha_npu/status.js builds its DOM through this module so components,
+ * dark-mode handling and layout helpers stay in one place.
  *
  * The kit is intentionally text-free: every user-visible string is passed in by
- * the caller, so all translatable msgids stay owned by the two view files and
+ * the caller, so all translatable msgids stay owned by the view file and
  * the gettext catalogue keeps a single, predictable source of truth.
  *
  * Layout follows the design reference: a `.airoha-page` token scope, an
@@ -35,7 +31,11 @@ var BANDS = [
 /* The `.ai-*` component stylesheet (section C of the design reference). Page
  * tokens come from ds-tokens.js and are prepended by ensureCss(). */
 var COMPONENT_CSS = [
-	'.airoha-page{max-width:1120px;margin:0 auto;color:var(--ds-text);line-height:1.5}',
+	/* Width policy mirrors the fancontrol views: the page root carries NO
+	 * width rules at all — the layout inherits the theme's content width, so
+	 * a late-injected stylesheet can never change the page's geometry (no
+	 * width flash on first paint). */
+	'.airoha-page{color:var(--ds-text);line-height:1.5}',
 	'.airoha-page :focus-visible{outline:2px solid var(--ds-primary);outline-offset:1px}',
 
 	'.ai-pagehead h2{margin:0;font-size:var(--ds-fs-2xl);line-height:1.3;font-weight:650;color:var(--ds-text)}',
@@ -57,7 +57,6 @@ var COMPONENT_CSS = [
 	'.ai-grid--2{grid-template-columns:repeat(auto-fit,minmax(20em,1fr))}',
 	'.ai-grid--3{grid-template-columns:repeat(auto-fit,minmax(15em,1fr))}',
 	'.ai-grid--4{grid-template-columns:repeat(auto-fit,minmax(12em,1fr))}',
-	'.ai-grid--pse{grid-template-columns:repeat(auto-fit,minmax(7.5em,1fr))}',
 	'.ai-grid--bands{grid-template-columns:repeat(auto-fit,minmax(7.5em,1fr))}',
 	'.ai-spanall{grid-column:1/-1}',
 
@@ -78,7 +77,7 @@ var COMPONENT_CSS = [
 	'.ai-num{font-family:var(--ds-mono);font-variant-numeric:tabular-nums;text-align:right}',
 	'.ai-err{color:var(--ds-error);font-weight:650}',
 
-	'.ai-kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(13em,1fr));gap:1px;background:var(--ds-border);border:1px solid var(--ds-border);border-radius:var(--ds-r-md);overflow:hidden}',
+	'.ai-kv{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--ds-border);border:1px solid var(--ds-border);border-radius:var(--ds-r-md);overflow:hidden}',
 	'.ai-kv-item{display:flex;align-items:baseline;justify-content:space-between;gap:var(--ds-sp-2);padding:var(--ds-sp-2) var(--ds-sp-3);background:var(--ds-surface-sunken);font-size:var(--ds-fs-sm);min-width:0}',
 	'.ai-kv-k{color:var(--ds-text-muted);white-space:nowrap}',
 	'.ai-kv-v{font-family:var(--ds-mono);font-variant-numeric:tabular-nums;font-weight:650;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
@@ -157,6 +156,9 @@ var COMPONENT_CSS = [
 	'.ai-table .ai-num,.ai-table th.ai-num{text-align:right}',
 	'.ai-table--mono td{font-family:var(--ds-mono);font-variant-numeric:tabular-nums;font-size:var(--ds-fs-xs)}',
 	'.ai-table tbody tr:hover{background:var(--ds-surface-sunken)}',
+	'.ai-port-table .ai-table{min-width:980px}',
+	'.ai-port-table .ai-table td{white-space:nowrap}',
+	'.ai-offload-controls .ai-switch-row{grid-template-columns:minmax(0,1fr) auto}',
 
 	'.ai-details{border:1px solid var(--ds-border);border-radius:var(--ds-r-md);background:var(--ds-surface-sunken);padding:0 var(--ds-sp-3);margin-top:var(--ds-sp-3)}',
 	'.ai-details>summary{cursor:pointer;padding:var(--ds-sp-2) 0;font-size:var(--ds-fs-sm);font-weight:650}',
@@ -175,6 +177,15 @@ var COMPONENT_CSS = [
 	'.airoha-page[data-wifi="false"] .ai-wifi-only{display:none}',
 
 	'@media (prefers-reduced-motion:reduce){.ai-skeleton,.ai-dot--live,.ai-bar-fill{animation:none;transition:none}}',
+
+	/* Theme interference guards: some themes decorate bare header/h2/h3
+	 * elements with primary-coloured bars/borders. Ours own their background
+	 * explicitly so no stray blue strip can appear above the sections. */
+	'.airoha-page header,.airoha-page header.ai-pagehead{background:transparent;border:0;box-shadow:none;padding:0;margin:0 0 var(--ds-sp-3)}',
+	'.airoha-page header::before,.airoha-page header::after{display:none}',
+	'.airoha-page h2,.airoha-page h3,.airoha-page .ai-lede{background:transparent;border:0;box-shadow:none;text-shadow:none}',
+	'.airoha-page .ai-section-head h3{background:transparent}',
+
 	'@media (max-width:720px){.ai-table--stack thead{display:none}.ai-table--stack,.ai-table--stack tbody,.ai-table--stack tr,.ai-table--stack td{display:block;width:100%}.ai-table--stack tr{padding:var(--ds-sp-2) 0;border-bottom:1px solid var(--ds-border)}.ai-table--stack td{border:0;padding:0}.ai-table--stack td:before{display:block;content:attr(data-label);color:var(--ds-text-muted);font-size:var(--ds-fs-xs);font-weight:650}.ai-kv,.ai-switch-row{grid-template-columns:1fr}}'
 ].join('\n');
 
@@ -440,16 +451,66 @@ function hasWifiRadio(o) {
 	return true;
 }
 
+/* ── Dark-mode probe ───────────────────────────────────────────────────────
+ * Whether the dark re-tune is appended is decided at runtime rather than by a
+ * CSS gate, because Argon (the default theme here) never sets
+ * :root[data-darkmode="true"]. Mirrors the mesh-conf implementation
+ * (view/meshconf/steering.js) verbatim so both packages agree on the verdict. */
+function isDarkMode() {
+	/* Probe order matters: the first element with an opaque background wins.
+	 * - body carries the theme background in every LuCI theme.
+	 * - .main-left is Argon's sidebar: var(--menu-bg-color) (#ffffff) when
+	 *   light, #333333 when dark. It is the only other always-opaque surface
+	 *   Argon has, and it matters because Argon inlines css/dark.css into a
+	 *   <style> block (header.ut readfile()) instead of linking it, so the
+	 *   stylesheet fallback below can never match Argon.
+	 * - .main-content / #maincontent / .cbi-map are the bootstrap-era wrappers.
+	 * header is deliberately NOT probed: Argon paints it with var(--primary)
+	 * (#5e72e4, luminance ~121), which would read as dark in light mode. */
+	var els = [document.body, document.querySelector('.main-left'), document.querySelector('.main-right'),
+		document.querySelector('.main-content'), document.querySelector('#maincontent'), document.querySelector('.cbi-map')];
+	for (var i = 0; i < els.length; i++) {
+		if (!els[i]) continue;
+		/* Parse rgb()/rgba() explicitly. Matching with /\d+/g splits the
+		 * fractional alpha 0.6 into "0" and "6", so m[3] reads 0 and every
+		 * semi-transparent background is mistaken for a fully transparent one
+		 * and skipped - semi-transparent dark surfaces then fell through to the
+		 * stylesheet fallback and were reported as light. */
+		var bg = window.getComputedStyle(els[i]).backgroundColor;
+		var m = bg.match(/rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:[\s,/]+([\d.]+))?/i);
+		if (m) {
+			var a = m[4] === undefined ? 1 : parseFloat(m[4]);
+			if (a < 0.1) continue;
+			var lum = (parseFloat(m[1]) * 299 + parseFloat(m[2]) * 587 + parseFloat(m[3]) * 114) / 1000;
+			return lum < 128;
+		}
+	}
+	var sheets = document.querySelectorAll('link[href*="dark"], link[href*="glass"]');
+	if (sheets.length > 0) return true;
+	/* Last resort: follow the OS preference. This is exactly what Argon's
+	 * default mode='normal' does - it wraps the inlined dark.css in
+	 * @media (prefers-color-scheme: dark) - and it also covers any theme that
+	 * leaves every probed surface transparent. */
+	try {
+		if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return true;
+	} catch (e) {}
+	return false;
+}
+
 /* ── Stylesheet injection ──────────────────────────────────────────────────
  * One shared <style> node per document, holding the page token scope, its
- * dark-mode re-tune and the component rules. */
+ * dark-mode re-tune and the component rules. The re-tune is gated by the
+ * runtime isDarkMode() probe (see above), not by a CSS attribute selector, so
+ * it applies on Argon too. ensureCss() is idempotent - the getElementById hit
+ * below returns the existing node untouched - so a theme switch after the page
+ * has loaded is NOT picked up until the page is reloaded. */
 function ensureCss() {
 	var el = document.getElementById(STYLE_ID);
 	if (el) return el;
 	el = document.createElement('style');
 	el.id = STYLE_ID;
 	el.textContent = '.airoha-page{' + tokens.tokens + ';line-height:1.5;color:var(--ds-text)}\n'
-		+ tokens.dark + '\n' + COMPONENT_CSS;
+		+ (isDarkMode() ? tokens.dark + '\n' : '') + COMPONENT_CSS;
 	document.head.appendChild(el);
 	return el;
 }
@@ -463,6 +524,7 @@ return baseclass.extend({
 	CSS: COMPONENT_CSS,
 	BANDS: BANDS,
 	ensureCss: ensureCss,
+	isDarkMode: isDarkMode,
 	hasWifiRadio: hasWifiRadio,
 	bandColor: bandColor,
 	esc: esc,
