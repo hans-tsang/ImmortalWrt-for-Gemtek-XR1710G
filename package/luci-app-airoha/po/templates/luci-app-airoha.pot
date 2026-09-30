@@ -25,9 +25,6 @@ msgstr ""
 msgid "Airoha"
 msgstr ""
 
-msgid "Airoha FlowSense"
-msgstr ""
-
 msgid "Airoha SoC Status"
 msgstr ""
 
@@ -55,10 +52,43 @@ msgstr ""
 msgid "Binding rate (BND / total)"
 msgstr ""
 
+msgid "All"
+msgstr ""
+
 msgid "Bound"
 msgstr ""
 
 msgid "Bound / total PPE flows"
+msgstr ""
+
+msgid "CPU model / temperature"
+msgstr ""
+
+msgid "CPU freq / PLL"
+msgstr ""
+
+msgid "Current frequency (cpuinfo_cur_freq)"
+msgstr ""
+
+msgid "Governor frequency (scaling_cur_freq)"
+msgstr ""
+
+msgid "VLAN passthrough"
+msgstr ""
+
+msgid "Hardware flow offload (UCI firewall)"
+msgstr ""
+
+msgid "Bridge firewall passthrough · PPPoE"
+msgstr ""
+
+msgid "Weakest client"
+msgstr ""
+
+msgid "Signal grade: ≥ -75 good · -75 ~ -82 weak · < -82 poor (worst client RSSI)"
+msgstr ""
+
+msgid "Signal quality"
 msgstr ""
 
 msgid "Bridge & hardware buffer"
@@ -68,6 +98,12 @@ msgid "Bridge / PON / Token Details"
 msgstr ""
 
 msgid "Bridge / WAN / Token Details"
+msgstr ""
+
+msgid "Bridge / Token Details"
+msgstr ""
+
+msgid "Bridge Details"
 msgstr ""
 
 msgid "Bridge RX dropped"
@@ -199,16 +235,7 @@ msgstr ""
 msgid "Flow Offload"
 msgstr ""
 
-msgid "FlowSense"
-msgstr ""
-
 msgid "Forward transitions"
-msgstr ""
-
-msgid "Frame Engine"
-msgstr ""
-
-msgid "Frame engine data is not available on this build"
 msgstr ""
 
 msgid "Frequency"
@@ -224,9 +251,6 @@ msgid "Good"
 msgstr ""
 
 msgid "Governor"
-msgstr ""
-
-msgid "Grant access to Airoha NPU status and FlowSense offload monitor"
 msgstr ""
 
 msgid "HEALTHY"
@@ -397,9 +421,6 @@ msgstr ""
 msgid "PLE: no data source"
 msgstr ""
 
-msgid "PLL Reading"
-msgstr ""
-
 msgid "PON"
 msgstr ""
 
@@ -460,9 +481,6 @@ msgstr ""
 msgid "RX errors"
 msgstr ""
 
-msgid "Real-time PPE hardware offload monitoring, link health and hardware offload status · source luci.airoha_flowsense (5 s poll)"
-msgstr ""
-
 msgid "Received"
 msgstr ""
 
@@ -505,9 +523,6 @@ msgstr ""
 msgid "Suggested off in router mode"
 msgstr ""
 
-msgid "Switches here are write operations; the same values are mirrored read-only on the FlowSense tab so there is only one place to change them."
-msgstr ""
-
 msgid "TX"
 msgstr ""
 
@@ -541,9 +556,6 @@ msgstr ""
 msgid "The per-band cards are indexed by wireless band and are skipped entirely on this board. The rest of the frame engine (PSE / GDM / CDM / NPU) is unaffected."
 msgstr ""
 
-msgid "This tab is read-only: switches are operated on the SoC / NPU tab so a kernel switch has only one writable entry point."
-msgstr ""
-
 msgid "Token pool"
 msgstr ""
 
@@ -569,6 +581,12 @@ msgid "Unsaved changes"
 msgstr ""
 
 msgid "Updated %s"
+msgstr ""
+
+msgid "Optical signal"
+msgstr ""
+
+msgid "shared"
 msgstr ""
 
 msgid "Upstream"
@@ -662,4 +680,76 @@ msgid "v4"
 msgstr ""
 
 msgid "v6"
+msgstr ""
+
+msgid "Ethernet Ports"
+msgstr ""
+
+msgid "Port"
+msgstr ""
+
+msgid "Path"
+msgstr ""
+
+msgid "Link"
+msgstr ""
+
+msgid "Speed / Duplex"
+msgstr ""
+
+msgid "RX / TX bytes"
+msgstr ""
+
+msgid "RX / TX packets"
+msgstr ""
+
+msgid "RX / TX errors"
+msgstr ""
+
+msgid "RX / TX dropped"
+msgstr ""
+
+msgid "Port data unavailable"
+msgstr ""
+
+msgid "Unavailable"
+msgstr ""
+
+msgid "Up"
+msgstr ""
+
+msgid "Down"
+msgstr ""
+
+msgid "PPE table unavailable"
+msgstr ""
+
+msgid "No matching flows"
+msgstr ""
+
+msgid "Packets"
+msgstr ""
+
+msgid "Bytes"
+msgstr ""
+
+msgid "All states"
+msgstr ""
+
+msgid "All types"
+msgstr ""
+
+msgid "Previous page"
+msgstr ""
+
+msgid "Next page"
+msgstr ""
+
+msgid "Status"
+msgstr ""
+
+msgid "PHY / Expected"
+msgstr ""
+
+msgid "Switches here apply the hardware offload settings for this device."
 msgstr ""
