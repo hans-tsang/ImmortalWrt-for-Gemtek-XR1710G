@@ -26,13 +26,18 @@ this was observed on carry an RTL8261BE package marking while binding to
 the RTL8261N driver entry, the two being told apart solely by a vendor
 version register, so covering only one of them would be fragile.
 
+link_change_notify() can race with a work item which has already started.
+The disable flag is therefore checked before every register access and
+before requeueing, and is published before the work is disabled, so a
+PHY teardown cannot be followed by an old SerDes reset.
+
 Signed-off-by: Daniel Golle <daniel@makrotopia.org>
 ---
  drivers/net/phy/realtek/phy_patch_rtl826x.c |  6 +-
  drivers/net/phy/realtek/phy_patch_rtl826x.h |  4 +
  drivers/net/phy/realtek/realtek.h           |  4 +
  drivers/net/phy/realtek/realtek_main.c      | 83 +++++++++++++++++++++
- 4 files changed, 94 insertions(+), 3 deletions(-)
+ 4 files changed, 104 insertions(+), 3 deletions(-)
 
 --- a/drivers/net/phy/realtek/realtek.h
 +++ b/drivers/net/phy/realtek/realtek.h
@@ -65,9 +70,15 @@ Signed-off-by: Daniel Golle <daniel@makrotopia.org>
 +#define RTL826X_SDS_MAX_RESETS			20
 +
  #define RTL826X_VEND1_PKG_MODEL			0x103
+<<<<<<< HEAD
  #define   RTL826X_VEND1_PKG_MODEL_8251		0x8251
  #define   RTL826X_VEND1_PKG_MODEL_8254		0x8254
 @@ -3265,6 +3276,70 @@ static int rtl826x_patch_db_init(struct
+=======
+ #define RTL826X_VEND1_VERSION_ID		0x104
+ #define   RTL826X_VEND1_VERSION_ID_VARIANT	GENMASK(2, 0)
+@@ -2921,6 +2932,80 @@ static int rtl826x_patch_db_init(struct
+>>>>>>> refs/remotes/upstream/master
  		return rtl8264b_phy_patch_db_init(phydev);
  }
  
@@ -84,6 +95,10 @@ Signed-off-by: Daniel Golle <daniel@makrotopia.org>
 +	struct phy_device *phydev = priv->phydev;
 +	int val;
 +
++	/* link_change_notify() may race with an already-running work. */
++	if (READ_ONCE(priv->sds_work_disabled))
++		return;
++
 +	val = rtl826x_phy_patch_sds_get(phydev, RTL826X_SDS_PAGE_LINK,
 +					RTL826X_SDS_REG_LINK);
 +	if (val < 0)
@@ -97,10 +112,16 @@ Signed-off-by: Daniel Golle <daniel@makrotopia.org>
 +		return;
 +	}
 +
++	if (READ_ONCE(priv->sds_work_disabled))
++		return;
++
 +	rtl826x_phy_patch_sds_set(phydev, RTL826X_SDS_PAGE_RESET,
 +				  RTL826X_SDS_REG_RESET, RTL826X_SDS_RESET_ASSERT);
 +	rtl826x_phy_patch_sds_set(phydev, RTL826X_SDS_PAGE_RESET,
 +				  RTL826X_SDS_REG_RESET, RTL826X_SDS_RESET_RELEASE);
++
++	if (READ_ONCE(priv->sds_work_disabled))
++		return;
 +
 +	schedule_delayed_work(&priv->sds_work,
 +			      msecs_to_jiffies(RTL826X_SDS_POLL_MS));
@@ -111,16 +132,16 @@ Signed-off-by: Daniel Golle <daniel@makrotopia.org>
 +	struct rtl826x_priv *priv = phydev->priv;
 +
 +	if (phydev->state != PHY_RUNNING) {
-+		if (!priv->sds_work_disabled) {
++		if (!READ_ONCE(priv->sds_work_disabled)) {
++			WRITE_ONCE(priv->sds_work_disabled, true);
 +			disable_delayed_work(&priv->sds_work);
-+			priv->sds_work_disabled = true;
 +		}
 +		return;
 +	}
 +
-+	if (priv->sds_work_disabled) {
++	if (READ_ONCE(priv->sds_work_disabled)) {
 +		enable_delayed_work(&priv->sds_work);
-+		priv->sds_work_disabled = false;
++		WRITE_ONCE(priv->sds_work_disabled, false);
 +	}
 +
 +	priv->sds_retries = 0;
@@ -138,7 +159,11 @@ Signed-off-by: Daniel Golle <daniel@makrotopia.org>
  static int rtl826x_probe(struct phy_device *phydev)
  {
  	struct device *dev = &phydev->mdio.dev;
+<<<<<<< HEAD
 @@ -3276,8 +3351,14 @@ static int rtl826x_probe(struct phy_devi
+=======
+@@ -2932,8 +3017,14 @@ static int rtl826x_probe(struct phy_devi
+>>>>>>> refs/remotes/upstream/master
  		return -ENOMEM;
  
  	priv->enable_pma_low_power = device_property_read_bool(dev, "realtek,enable-pma-low-power");
@@ -153,7 +178,11 @@ Signed-off-by: Daniel Golle <daniel@makrotopia.org>
  	if (!priv->enable_pma_low_power)
  		phydev_warn(phydev, "PMA low-power suspend disabled\n");
  
+<<<<<<< HEAD
 @@ -4117,6 +4198,7 @@ static struct phy_driver realtek_drvs[]
+=======
+@@ -3747,6 +3838,7 @@ static struct phy_driver realtek_drvs[]
+>>>>>>> refs/remotes/upstream/master
  	}, {
  		.name           = "RTL8261BE 10Gbps PHY",
  		.config_init    = rtl826x_config_init,
@@ -161,7 +190,11 @@ Signed-off-by: Daniel Golle <daniel@makrotopia.org>
  		.probe          = rtl826x_probe,
  		.get_features   = rtl826x_get_features,
  		.suspend        = rtl826x_suspend,
+<<<<<<< HEAD
 @@ -4134,6 +4216,7 @@ static struct phy_driver realtek_drvs[]
+=======
+@@ -3764,6 +3856,7 @@ static struct phy_driver realtek_drvs[]
+>>>>>>> refs/remotes/upstream/master
  	}, {
  		.name           = "RTL8261N 10Gbps PHY",
  		.config_init    = rtl826x_config_init,

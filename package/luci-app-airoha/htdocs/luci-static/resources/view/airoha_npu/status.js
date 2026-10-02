@@ -9,7 +9,6 @@
 var callNpuStatus = rpc.declare({ object: 'luci.airoha_npu', method: 'getStatus' });
 var callPpeEntries = rpc.declare({ object: 'luci.airoha_npu', method: 'getPpeEntries' });
 var callTokenInfo = rpc.declare({ object: 'luci.airoha_npu', method: 'getTokenInfo' });
-var callFrameEngine = rpc.declare({ object: 'luci.airoha_npu', method: 'getFrameEngine' });
 var callSetGovernor = rpc.declare({ object: 'luci.airoha_npu', method: 'setGovernor', params: ['governor'] });
 var callSetMaxFreq = rpc.declare({ object: 'luci.airoha_npu', method: 'setMaxFreq', params: ['freq'] });
 // VLAN Offload is an independent switch again (it owns the VLAN passthrough
@@ -24,15 +23,14 @@ var callGetApModeOffload = rpc.declare({ object: 'luci.airoha_npu', method: 'get
 var callSetApModeOffload = rpc.declare({ object: 'luci.airoha_npu', method: 'setApModeOffload', params: ['enabled'] });
 var callGetDeviceMode = rpc.declare({ object: 'luci.airoha_npu', method: 'getDeviceMode' });
 var callGetTopology = rpc.declare({ object: 'luci.airoha_npu', method: 'getTopology' });
+var callGetWifiStats = rpc.declare({ object: 'luci.airoha_npu', method: 'getWifiStats' });
 var callSetCpuSettings = rpc.declare({ object: 'luci.airoha_npu', method: 'setCpuSettings', params: ['governor', 'freq'] });
 
 // Tracks whether the user has changed a CPU control select without saving yet.
 // While dirty, the 5s poll must NOT overwrite the selects with live sysfs values.
 var cpuSettingsDirty = false;
 
-/* ── Shared state vocabulary ──────────────────────────────────────────────
- * The two tabs use ONE set of health words so a band, a token pool or a PLE
- * pool never reads "Good" on one page and "Normal" on the other. */
+/* ── Shared state vocabulary ────────────────────────────────────────────── */
 
 function isEnabled(value) {
 	return value === true || value === 1 || value === '1';
@@ -41,16 +39,6 @@ function isEnabled(value) {
 function isBridgeOffloadBlocked(mode) {
 	mode = mode || {};
 	return isEnabled(mode.bridge_offload_blocked);
-}
-
-/* Band link health → { text, kind }. */
-function bandHealth(s) {
-	if (!s || s.count === 0) return { text: _('No clients'), kind: '' };
-	if (!s.tx_packets) return { text: _('Idle'), kind: '' };
-	var r = s.tx_retries / (s.tx_packets + s.tx_retries);
-	return r > 0.5 ? { text: _('Poor'), kind: 'error' }
-		: r > 0.2 ? { text: _('Fair'), kind: 'warn' }
-			: { text: _('Good'), kind: 'ok' };
 }
 
 /* Token-pool occupancy → { text, kind }. */
@@ -62,38 +50,20 @@ function tokenHealth(c, s) {
 			: { text: _('Critical'), kind: 'error' };
 }
 
-function retryPct(s) {
-	if (!s || !s.tx_packets) return '—';
-	return (s.tx_retries / (s.tx_packets + s.tx_retries) * 100).toFixed(1) + '%';
-}
-
-function getBandStats(ti, b) {
-	var c = Array.isArray(ti.station_counts) ? ti.station_counts : [];
-	for (var i = 0; i < c.length; i++) if (c[i].band === b) return c[i];
-	return { band: b, count: 0, tx_packets: 0, tx_retries: 0 };
-}
-
 function getTxQueue(ti, b) {
 	var q = Array.isArray(ti.tx_queues) ? ti.tx_queues : [];
 	for (var i = 0; i < q.length; i++) if (q[i].band === b) return q[i];
 	return null;
 }
 
-function calcTotalMem(regions) {
-	var t = 0;
-	(regions || []).forEach(function(r) {
-		var m = (r.size || '').match(/(\d+)\s*(KiB|MiB|GiB)/i);
-		if (m) { var s = parseInt(m[1]); var u = m[2][0].toUpperCase(); t += u === 'G' ? s * 1048576 : u === 'M' ? s * 1024 : s; }
-	});
-	return t >= 1024 ? (t / 1024).toFixed(0) + ' MiB' : t + ' KiB';
-}
-
-/* ── Topology-derived port labels ─────────────────────────────────────────
- * The PSE/GDM/CDM layout is board-specific (the XR1710G has a USXGMII WAN and
- * a WiFi DMA path; the XG2010G is a PON ONU with no WAN and no WiFi at all),
- * so every port label is built from the getTopology facts instead of being
- * hardcoded for one board. Technical tokens (GDM1, USXGMII, 2500base-x, the
- * netdev names) stay untranslated, exactly as the file already treats them. */
+/* ── Port labels ──────────────────────────────────────────────────────────
+ * External port names are pinned per board model ("10G WAN", "2.5G LAN3"…)
+ * because they describe the port's design identity, not the momentary PHY
+ * result — a label must not change just because a link negotiated down.
+ * Boards are matched on the getTopology compatible/model string and ports on
+ * their netdev name; anything unmapped (unknown board or netdev) falls back
+ * to the topology-derived label. Technical tokens (GDM1, the netdev names)
+ * stay untranslated, exactly as the file already treats them. */
 
 /* Human-readable role/mode summary for one topology port. */
 function portLabel(p) {
@@ -112,7 +82,94 @@ function portLabel(p) {
 }
 
 function portName(p) {
+	if (p && p.kind === 'gdm') return 'GDM' + p.reg;
 	return String((p && p.key) || '').toUpperCase();
+}
+
+/* Link speed (Mbps) → compact tag: 10000 → "10G", 1000 → "1G". */
+function speedTag(mbps) {
+	mbps = Number(mbps) || 0;
+	if (mbps >= 10000) return '10G';
+	if (mbps >= 5000) return '5G';
+	if (mbps >= 2500) return '2.5G';
+	if (mbps >= 1000) return '1G';
+	if (mbps >= 100) return '100M';
+	return '';
+}
+
+/* Static per-mode speed fallback (Mbps) for ports whose link is down, so a
+ * "1G LAN4" label still reads as 1G before the PHY negotiates. */
+function modeFallbackMbps(mode) {
+	switch (String(mode || '').toLowerCase()) {
+		case 'usxgmii': case 'dxa': return 10000;
+		case '2500base-x': return 2500;
+		case 'sgmii': case 'internal': return 1000;
+		default: return 0;
+	}
+}
+
+/* Best-known speed tag for a port: negotiated speed wins, else the mode's
+ * static capability. */
+function portSpeedTag(p) {
+	return speedTag(p && p.speed_mbps) || speedTag(modeFallbackMbps(p && p.mode));
+}
+
+/* A port that fronts the internal switch CPU (no netdev of its own). */
+function isSwitchCpuPort(p) {
+	return !(p && p.netdev) || p.role === 'conduit' || String(p.netdev) === 'cpu';
+}
+
+/* LAN netdevs behind the internal switch sharing the same GDM data path. */
+function switchLanNetdevs(pse, topo) {
+	var out = [];
+	(Array.isArray(topo && topo.ports) ? topo.ports : []).forEach(function(q) {
+		if (q && q.kind === 'gsw' && q.pse === pse && q.netdev) out.push(q.netdev);
+	});
+	return out;
+}
+
+/* Fixed per-board port labels, keyed by netdev. Speeds are the ports' design
+ * capability — deliberately not live negotiation, so a label never flips
+ * between "10G" and "1G" while a link renegotiates.
+ *   XR1710G: 10G WAN / 10G LAN2 / 1G LAN3 / 1G LAN4 (+WiFi via CDM4)
+ *   XG2010G: 10G LAN1 / 10G LAN2 / 2.5G LAN3 / 1G LAN4 (uplink is the PON card) */
+var BOARD_PORT_NAMES = {
+	xr1710: { wan: '10G WAN', lan2: '10G LAN2', lan3: '1G LAN3', lan4: '1G LAN4' },
+	xg2010: { lan1: '10G LAN1', lan2: '10G LAN2', lan3: '2.5G LAN3', lan4: '1G LAN4' }
+};
+
+/* Pick the fixed label table for this board, or null when the board is not
+ * one of the pinned models (unknown boards keep the topology-derived label). */
+function boardPortNames(topo) {
+	var id = (((topo && topo.compatible) || '') + ' ' + ((topo && topo.model) || '')).toLowerCase();
+	var keys = Object.keys(BOARD_PORT_NAMES);
+	for (var i = 0; i < keys.length; i++) {
+		if (id.indexOf(keys[i]) >= 0) return BOARD_PORT_NAMES[keys[i]];
+	}
+	return null;
+}
+
+/* Human-facing name for a topology port: "10G WAN", "10G LAN2", "1G LAN3". */
+function humanPortName(p, topo) {
+	p = p || {};
+	if (p.role === 'pon') return 'PON';
+	if (isSwitchCpuPort(p)) {
+		var lans = switchLanNetdevs(p.pse, topo);
+		if (!lans.length) return _('Internal Switch');
+		var fixedLans = boardPortNames(topo);
+		return 'LAN · ' + lans.map(function(x) {
+			return (fixedLans && fixedLans[String(x).toLowerCase()]) || x;
+		}).join(', ');
+	}
+	var fixed = boardPortNames(topo);
+	if (fixed) {
+		var nd = String(p.netdev || '').toLowerCase();
+		if (fixed[nd]) return fixed[nd];
+	}
+	var speed = portSpeedTag(p);
+	if (String(p.role || '').toLowerCase() === 'wan')
+		return (speed ? speed + ' ' : '') + 'WAN';
+	return (speed ? speed + ' ' : '') + 'LAN' + String(p.netdev).replace(/^lan/i, '');
 }
 
 /* Accent colour for a GDM card: CPU/internal-facing MACs are amber, the
@@ -123,30 +180,6 @@ function portAccent(p) {
 	return 'var(--ds-ok)';
 }
 
-/* PSE port index → tile metadata. The getFrameEngine payload enumerates the
- * PSE ports 0..9; the CDM/PPE engines always get a fixed entry, the rest are
- * filled from the topology's own `pse` index. A port without its own PSE entry
- * (e.g. the switch ports behind the internal GDM) leaves the index empty and
- * the tile falls back to its PSE index. First entry wins so a GDM MAC is never
- * displaced by the internal switch ports that share its PSE. */
-function buildPsePortMap(topo) {
-	topo = topo || {};
-	var map = [];
-	map[0] = { name: 'CDM1', label: 'CPU DMA 1', color: 'var(--ai-cpu)' };
-	map[4] = { name: 'PPE1', label: 'PPE Eng 1', color: 'var(--ai-npu)' };
-	map[5] = { name: 'CDM2', label: 'CPU DMA 2', color: 'var(--ai-cpu)' };
-	map[6] = { name: 'CDM3', label: 'CDM3', color: 'var(--ds-border-strong)' };
-	map[7] = { name: 'CDM4', label: 'WDMA', color: 'var(--ai-band-6)' };
-	map[8] = { name: 'PPE2', label: 'PPE Eng 2', color: 'var(--ai-npu)' };
-	(Array.isArray(topo.ports) ? topo.ports : []).forEach(function(p) {
-		if (!p || p.pse === undefined || p.pse === null) return;
-		var idx = Number(p.pse);
-		if (isNaN(idx) || map[idx]) return;
-		map[idx] = { name: portName(p), label: portLabel(p), color: portAccent(p) };
-	});
-	return map;
-}
-
 /* ── Summary tiles ── */
 function npuSummaryTiles(st, ti) {
 	st = st || {}; ti = ti || {};
@@ -154,7 +187,6 @@ function npuSummaryTiles(st, ti) {
 	var clock = st.npu_clock ? Math.round(st.npu_clock / 1000000) : 0;
 	var bound = st.offload_bound || 0;
 	var total = st.offload_total || 0;
-	var mem = Array.isArray(st.memory_regions) ? st.memory_regions : [];
 
 	// TX token pool — the hardware send tokens the NPU/WDMA draws from. This is
 	// the reading the old view never surfaced.
@@ -167,7 +199,7 @@ function npuSummaryTiles(st, ti) {
 
 	var temp = (st.cpu_temp && st.cpu_temp !== 'N/A') ? st.cpu_temp : '';
 
-	return {
+	var tiles = {
 		'npu-summary-status': aui.tile({
 			id: 'npu-summary-status', title: _('NPU Status'),
 			value: active ? _('Activated') : _('Not Activated'),
@@ -185,17 +217,8 @@ function npuSummaryTiles(st, ti) {
 			accent: total > 0 ? 'var(--ai-npu)' : 'var(--ds-text-muted)',
 			sub: _('Bound / total PPE flows')
 		}),
-		'npu-summary-memory': aui.tile({
-			id: 'npu-summary-memory', title: _('Reserved Memory'),
-			value: calcTotalMem(mem), accent: 'var(--ai-band-6)',
-			sub: mem.length + ' ' + _('memory regions')
-		}),
-		'npu-summary-token': aui.tile({
-			id: 'npu-summary-token', title: _('TX Token Pool'),
-			value: tokSize > 0 ? (tokCount + ' / ' + tokSize) : 'N/A',
-			accent: tokAccent,
-			sub: tokSize > 0 ? (_('used') + ' ' + aui.fmtPct(tokPct, 0)) : _('Unknown')
-		}),
+		// The reserved-memory regions tile was dropped: region count/size means
+		// nothing to an operator and the DTS never changes after boot.
 		'npu-summary-temp': aui.tile({
 			id: 'npu-summary-temp', title: _('CPU Temperature'),
 			value: temp ? temp.replace(/[^\d.]/g, '') : '—', unit: temp ? '°C' : '',
@@ -203,17 +226,31 @@ function npuSummaryTiles(st, ti) {
 			sub: (st.cpu_count || 0) + ' ' + _('cores') + ' · ' + (st.soc_compat || '')
 		})
 	};
+
+	// The TX token pool tile only carries meaning when the driver exposes the
+	// probe (mt76's token_info debugfs node). On builds without it the tile
+	// would sit at "N/A / Unknown" forever — hide it instead.
+	if (tokSize > 0) {
+		tiles['npu-summary-token'] = aui.tile({
+			id: 'npu-summary-token', title: _('TX Token Pool'),
+			value: tokCount + ' / ' + tokSize,
+			accent: tokAccent,
+			sub: _('used') + ' ' + aui.fmtPct(tokPct, 0)
+		});
+	}
+
+	return tiles;
 }
 
 var SUMMARY_IDS = [
 	'npu-summary-status', 'npu-summary-clock', 'npu-summary-flows',
-	'npu-summary-memory', 'npu-summary-token', 'npu-summary-temp'
+	'npu-summary-token', 'npu-summary-temp'
 ];
 
 function renderSummary(st, ti) {
 	var tiles = npuSummaryTiles(st, ti);
 	return E('div', { 'class': 'ai-grid ai-grid--tiles', 'id': 'npu-summary-grid' },
-		SUMMARY_IDS.map(function(id) { return tiles[id]; }));
+		SUMMARY_IDS.map(function(id) { return tiles[id]; }).filter(Boolean));
 }
 
 function updateSummary(st, ti) {
@@ -221,22 +258,21 @@ function updateSummary(st, ti) {
 	if (!grid) return;
 	var tiles = npuSummaryTiles(st, ti);
 	grid.innerHTML = '';
-	SUMMARY_IDS.forEach(function(id) { grid.appendChild(tiles[id]); });
+	SUMMARY_IDS.forEach(function(id) { if (tiles[id]) grid.appendChild(tiles[id]); });
 }
 
 /* ── CPU frequency ── */
 function freqState(st) {
 	st = st || {};
 	var hw = st.cpu_hw_freq || 0, min = st.cpu_min_freq || 0, max = st.cpu_max_freq || 0;
-	var pll = st.pll_freq_mhz || 0, gov = st.cpu_governor;
-	var oc = gov === 'performance' && pll > 0 && (pll * 1000) > max;
-	return { freq: oc ? pll * 1000 : Math.min(hw, max), min: min, max: oc ? pll * 1000 : max, oc: oc };
+	var freq = hw || st.cpu_cur_freq || 0;
+	return { freq: freq, min: min, max: max || freq };
 }
 
 function renderCpuInfo(st) {
 	st = st || {};
 	return aui.card({
-		name: _('CPU Info'), tag: 'cpuinfo / thermal', accent: 'var(--ai-npu)',
+		name: _('CPU Info'), tag: _('CPU model / temperature'), accent: 'var(--ai-npu)',
 		body: [
 			aui.row(_('Model'), st.soc_compat || ''),
 			aui.row(_('Architecture'), st.cpu_arch || ''),
@@ -250,35 +286,19 @@ function renderFreqCard(st) {
 	st = st || {};
 	var s = freqState(st);
 	return aui.card({
-		name: _('Current Frequency'), tag: 'cpufreq / PLL', accent: 'var(--ds-ok)',
+		name: _('Current Frequency'), tag: _('CPU freq / PLL'), accent: 'var(--ds-ok)',
 		body: [
 			aui.bar({
-				title: 'cpuinfo_cur_freq', right: aui.fmtFreq(s.freq) + ' / ' + aui.fmtFreq(s.max),
+				title: _('Current frequency (cpuinfo_cur_freq)'), right: aui.fmtFreq(s.freq) + ' / ' + aui.fmtFreq(s.max),
 				pct: (s.max > s.min) ? Math.round((s.freq - s.min) / (s.max - s.min) * 100) : 0,
-				accent: s.oc ? 'var(--ds-warn)' : 'var(--ds-ok)',
-				label: s.oc ? ((st.pll_freq_mhz || 0) + ' MHz (OC)') : aui.fmtFreq(s.freq),
+				accent: 'var(--ds-ok)',
+				label: aui.fmtFreq(s.freq),
 				tall: true, fillId: 'cpu-freq-fill', labelId: 'cpu-freq-text'
 			}),
-			aui.row(_('PLL Reading'), aui.fmtFreq((st.pll_freq_mhz || 0) * 1000)),
 			aui.row(_('Frequency Range'), aui.fmtFreq(st.cpu_min_freq) + ' – ' + aui.fmtFreq(st.cpu_max_freq)),
-			aui.row('scaling_cur_freq', aui.fmtFreq(st.cpu_cur_freq))
+			aui.row(_('Governor frequency (scaling_cur_freq)'), aui.fmtFreq(st.cpu_cur_freq))
 		]
 	});
-}
-
-function updateFreqCard(st) {
-	st = st || {};
-	var s = freqState(st);
-	var min = st.cpu_min_freq || 0;
-	var pct = (s.max > min) ? Math.round((s.freq - min) / (s.max - min) * 100) : 0;
-	pct = Math.max(0, Math.min(100, pct));
-	var fill = document.getElementById('cpu-freq-fill');
-	if (fill) {
-		fill.style.width = pct + '%';
-		fill.style.background = s.oc ? 'var(--ds-warn)' : 'var(--ds-ok)';
-	}
-	var text = document.getElementById('cpu-freq-text');
-	if (text) text.textContent = s.oc ? ((st.pll_freq_mhz || 0) + ' MHz (OC)') : aui.fmtFreq(s.freq);
 }
 
 /* ── CPU control settings (governor / max freq + save) ── */
@@ -344,7 +364,12 @@ function renderGovSelect(avail, active, reason) {
 }
 
 function renderMaxFreqSelect(avail, cur, reason) {
-	return cpuSelect('cpu-maxfreq-select', splitList(avail), cur || '', reason, function(f) {
+	var freqs = splitList(avail).map(function(f) { return parseInt(f, 10); })
+		.filter(function(f) { return isFinite(f) && f > 0 && f <= 1400000; })
+		.filter(function(f, i, values) { return values.indexOf(f) === i; })
+		.sort(function(a, b) { return a - b; })
+		.map(String);
+	return cpuSelect('cpu-maxfreq-select', freqs, cur || '', reason, function(f) {
 		return Math.round(parseInt(f, 10) / 1000) + ' MHz';
 	});
 }
@@ -461,6 +486,24 @@ function renderOffloadSwitch(cfg) {
 	});
 }
 
+function renderOffloadControls(topo, vo, flo, apo, blocked) {
+	var id = String(topo && topo.compatible || '');
+	if (!id) return null;
+	var bridge = !/^gemtek,xg2010g(?:-|$)/.test(id) &&
+		vo.supported !== false && apo.supported !== false;
+	var controls = [
+		renderOffloadSwitch({ rowId: 'flow-offload-row', inputId: 'flow-offload-select', badgeId: 'flow-offload-badge',
+			name: _('Flow Offload'), enabled: flo.enabled, blocked: false, callFn: callSetFlowOffload })
+	];
+	if (bridge) {
+		controls.unshift(renderOffloadSwitch({ rowId: 'vlan-offload-row', inputId: 'vlan-offload-select', badgeId: 'vlan-offload-badge',
+			name: _('VLAN Offload'), enabled: vo.enabled, blocked: blocked, callFn: callSetVlanOffload }));
+		controls.push(renderOffloadSwitch({ rowId: 'apmode-offload-row', inputId: 'apmode-offload-select', badgeId: 'apmode-offload-badge',
+			name: _('AP Mode Acceleration'), enabled: apo.enabled, blocked: blocked, callFn: callSetApModeOffload }));
+	}
+	return E('div', { 'class': 'ai-offload-controls ai-grid' + (bridge ? ' ai-grid--3' : '') }, controls);
+}
+
 function updateOffloadControl(inputId, badgeId, rowId, enabled, blocked) {
 	enabled = isEnabled(enabled);
 	blocked = isEnabled(blocked);
@@ -486,86 +529,105 @@ function updateOffloadControl(inputId, badgeId, rowId, enabled, blocked) {
 	}
 }
 
-/* ── Frame engine diagram ── */
-function renderFeDiagram(fe, ti, st, ppe, topo) {
-	if (!fe || fe.error) return aui.empty(_('Frame engine data is not available on this build'));
-	ti = ti || {}; st = st || {}; ppe = ppe || {}; topo = topo || {};
-	var ports = Array.isArray(fe.pse_ports) ? fe.pse_ports : [];
-	// The GDM MAC cards and the PSE tile labels are generated from the live
-	// topology, never from a fixed board layout, so the 2010 (no WAN, lan1 on
-	// GDM4, no GDM2) and the 1710 (USXGMII WAN on GDM2) both render correctly.
-	var topoPorts = Array.isArray(topo.ports) ? topo.ports : [];
-	var gdmPorts = topoPorts.filter(function(p) { return p && p.kind === 'gdm'; });
-	var psePortMap = buildPsePortMap(topo);
-
-	// The per-band cards (tx_queues / station_counts) are indexed by wireless
-	// band, so they are skipped entirely on a radio-less board (e.g. the 2010)
-	// instead of rendering three empty cards. has_wifi is authoritative; the
-	// shared predicate fails open if the flag is missing.
-	var hasWifi = aui.hasWifiRadio({ has_wifi: ti.has_wifi });
-
-	function gdmCard(key, name, label, accent, pse) {
-		var d = fe[key] || {};
-		var body = [ aui.row('TX', aui.fmtK(d.tx)), aui.row('RX', aui.fmtK(d.rx)) ];
-		if (d.tx_drop > 0) body.push(aui.row('TX Drop', aui.fmtK(d.tx_drop), 'ai-err'));
-		if (d.rx_drop > 0) body.push(aui.row('RX Drop', aui.fmtK(d.rx_drop), 'ai-err'));
-		body.push(aui.row(_('State'), (d.tx > 0 || d.rx > 0) ? _('Active') : _('Idle')));
-		return aui.card({ name: name, tag: pse + ' · ' + label, accent: accent, body: body });
-	}
-
-	function cdmCard(key, name, tag, pse) {
-		var d = fe[key] || {};
-		var total = (d.rx_cpu || 0) + (d.rx_hwf || 0);
-		var p = total > 0 ? (d.rx_hwf / total) * 100 : 0;
-		var bcol = total === 0 ? 'var(--ds-border)' : p > 80 ? 'var(--ds-ok)' : p > 50 ? 'var(--ds-warn)' : 'var(--ds-error)';
-		return aui.card({
-			name: name + ' ' + pse, tag: tag, accent: 'var(--ai-npu)',
-			body: [
-				aui.bar({ title: 'HW Offload', right: aui.fmtPct(p), pct: p, accent: bcol }),
-				aui.row('CPU', aui.fmtK(d.rx_cpu || 0)),
-				aui.row('HWF', aui.fmtK(d.rx_hwf || 0)),
-				(d.rx_cpu_drop > 0) ? aui.row('CPU Drop', aui.fmtK(d.rx_cpu_drop), 'ai-err') : null,
-				(d.rx_hwf_drop > 0) ? aui.row('HWF Drop', aui.fmtK(d.rx_hwf_drop), 'ai-err') : null,
-				aui.row('TX', aui.fmtK(d.tx || 0))
-			]
-		});
-	}
-
-	// WiFi band chips (CDM4) — data sources are indexed by wireless band.
-	var bandChips = [];
-	if (hasWifi) {
-		for (var b = 0; b < 3; b++) {
-			var stats = getBandStats(ti, b);
-			var txQ = getTxQueue(ti, b);
-			var type = txQ ? txQ.type : '?';
-			var h = bandHealth(stats);
-			bandChips.push(aui.card({
-				name: aui.BANDS[b].full, tag: 'P7 ' + type.toUpperCase(), accent: aui.bandColor(b),
-				body: [
-					h.kind || h.text ? aui.pill(h.text, h.kind) : null,
-					aui.row(_('Clients'), String(stats.count)),
-					aui.row(_('Retransmit'), retryPct(stats))
-				]
-			}));
-		}
-	}
-
-	var bandBlock = hasWifi ? [
-		E('div', { 'class': 'ai-subhead', 'style': 'margin:var(--ds-sp-2) 0 var(--ds-sp-1)' }, _('Bands')),
-		E('div', { 'class': 'ai-grid ai-grid--bands', 'style': 'gap:var(--ds-sp-1)' }, bandChips)
-	] : [];
-
-	var p7 = ports[7] || { iq: 0, oq: 0, drops: 0 };
-	var cdm4WiFi = aui.card({
-		name: 'CDM4 / WDMA', tag: 'P7 WiFi DMA', accent: 'var(--ai-band-6)',
-		body: [
-			aui.bar({ title: 'IQ / OQ', right: 'IQ ' + p7.iq + ' · OQ ' + p7.oq, pct: (p7.oq / 256 * 100), accent: 'var(--ai-band-6)' })
-		].concat(bandBlock)
+function renderEthernetPorts(topo) {
+	topo = topo || {};
+	var ports = (Array.isArray(topo.ports) ? topo.ports : []).filter(function(p) {
+		return p && p.netdev && !isSwitchCpuPort(p);
+	}).sort(function(a, b) {
+		var aUp = a.role === 'wan' || a.role === 'pon';
+		var bUp = b.role === 'wan' || b.role === 'pon';
+		return aUp !== bUp ? (aUp ? -1 : 1) : a.netdev.localeCompare(b.netdev, undefined, { numeric: true });
 	});
+	function count(value) {
+		return typeof value === 'number' && isFinite(value) ? value.toLocaleString() : 'N/A';
+	}
+	function bytes(value) {
+		return typeof value === 'number' && isFinite(value) ? '%1024.2mB'.format(value) : 'N/A';
+	}
+	var table = aui.table({
+		cols: [
+			{ t: _('Port') }, { t: _('Path') }, { t: _('Link') }, { t: _('Speed / Duplex') },
+			{ t: _('RX / TX bytes'), num: true }, { t: _('RX / TX packets'), num: true },
+			{ t: _('RX / TX errors'), num: true }, { t: _('RX / TX dropped'), num: true }
+		],
+		rows: ports.map(function(p) {
+			var state = p.present === false ? _('Unavailable') :
+				p.carrier === 1 ? _('Up') : p.carrier === 0 ? _('Down') : _('Unknown');
+			var speed = p.carrier === 1 && p.speed_mbps > 0 ? p.speed_mbps + ' Mbps' : 'N/A';
+			var path = (p.kind === 'gsw' ? 'GSW' : 'GDM') + p.reg;
+			if (p.nbq !== null && p.nbq !== undefined) path += ' / NBQ' + p.nbq;
+			return [
+				humanPortName(p, topo) + ' (' + p.netdev + ')',
+				path, aui.pill(state, p.carrier === 1 ? 'ok' : ''),
+				speed + (p.carrier === 1 && p.duplex ? ' / ' + p.duplex : ''),
+				bytes(p.rx_bytes) + ' / ' + bytes(p.tx_bytes),
+				count(p.rx_packets) + ' / ' + count(p.tx_packets),
+				count(p.rx_errors) + ' / ' + count(p.tx_errors),
+				count(p.rx_dropped) + ' / ' + count(p.tx_dropped)
+			];
+		}),
+		emptyText: _('Port data unavailable')
+	});
+	table.classList.add('ai-port-table');
+	return table;
+}
 
-	var wifiBanner = hasWifi ? null : aui.banner('info', _('No wireless hardware detected'),
-		_('The per-band cards are indexed by wireless band and are skipped entirely on this board. The rest of the frame engine (PSE / GDM / CDM / NPU) is unaffected.'));
+/* Detailed MT7996 per-band health. The backend's has_wifi flag is
+ * authoritative, so radio-less XG2010G systems do not render an empty table. */
+function renderWifiDetails(wifi, ppe, ti, st) {
+	wifi = wifi || {};
+	if (!aui.hasWifiRadio(wifi)) return null;
+	var bands = Array.isArray(wifi.bands) ? wifi.bands : [];
+	var bandBnd = ppe && ppe.bnd && Array.isArray(ppe.bnd.band_bnd) ? ppe.bnd.band_bnd : [];
+	var bandUnb = ppe && ppe.unb && Array.isArray(ppe.unb.band_unb) ? ppe.unb.band_unb : [];
+	var rows = bands.map(function(bd) {
+		var info = aui.BANDS[bd.band] || { full: 'Band ' + bd.band };
+		var txPackets = Number(bd.tx_packets) || 0;
+		var txRetries = Number(bd.tx_retries) || 0;
+		var retry = txPackets + txRetries > 0 ? txRetries / (txPackets + txRetries) * 100 : (Number(bd.retry_pct) || 0);
+		var retryColor = retry > 20 ? 'var(--ds-error)' : retry > 5 ? 'var(--ds-warn)' : 'var(--ds-ok)';
+		var health = (bd.stations || 0) === 0 ? { text: _('No clients'), kind: '' } :
+			retry > 50 ? { text: _('Poor'), kind: 'error' } :
+				retry > 20 ? { text: _('Fair'), kind: 'warn' } : { text: _('Good'), kind: 'ok' };
+		var txQueue = getTxQueue(ti, bd.band);
+		var queueType = txQueue && txQueue.type ? String(txQueue.type).toUpperCase() :
+			(isEnabled(st && st.npu_loaded) ? 'NPU' : 'DMA');
+		var signal = (bd.stations || 0) > 0 ? (bd.avg_signal || 0) + ' / ' + (bd.min_signal || 0) : 'N/A';
+		return [
+			info.full,
+			'P7 / ' + queueType,
+			aui.pill(health.text, health.kind),
+			String(bd.stations || 0),
+			E('span', { 'style': 'color:' + retryColor }, retry.toFixed(1) + '%'),
+			(bd.airtime_efficiency || 0) + '%',
+			(bd.avg_phy_rate || 0) + ' / ' + (bd.avg_exp_throughput || 0),
+			String(bd.tx_failed || 0),
+			signal,
+			String(bd.tx_mbps || 0),
+			(bandBnd[bd.band] || 0) + ' / ' + (bandUnb[bd.band] || 0)
+		];
+	});
+	var table = aui.table({
+		mono: true, stack: true, emptyText: _('No entries'),
+		cols: [
+			{ t: _('Band') }, { t: _('Path') }, { t: _('Status') }, { t: _('Clients'), num: true },
+			{ t: _('Retry'), num: true }, { t: _('Airtime'), num: true }, { t: _('PHY / Expected'), num: true },
+			{ t: _('Failed'), num: true }, { t: _('Signal'), num: true }, { t: _('TX') + ' Mbps', num: true },
+			{ t: 'BND / UNB', num: true }
+		],
+		rows: rows
+	});
+	table.classList.add('ai-port-table');
+	return aui.section({
+		title: _('WiFi Band Details'),
+		hint: _('Per-band airtime efficiency, negotiated and expected rates, failure counts and BND/UNB ownership.'),
+		body: table
+	});
+}
 
+/* ── NPU and PPE engine status ── */
+function renderEngineStatus(st, ppe) {
+	st = st || {}; ppe = ppe || {};
 	var npuActive = isEnabled(st.npu_loaded);
 	var npuCard = aui.card({
 		name: 'NPU', tag: npuActive ? 'ACTIVE' : 'OFF',
@@ -588,114 +650,123 @@ function renderFeDiagram(fe, ti, st, ppe, topo) {
 		]
 	});
 
-	var pseT = (fe.pse_used || 0) + (fe.pse_free || 0);
-	var pseP = pseT > 0 ? (fe.pse_used / pseT) * 100 : 0;
-	var pseCol = pseP > 80 ? 'var(--ds-error)' : pseP > 50 ? 'var(--ds-warn)' : 'var(--ds-ok)';
-
-	var portCells = ports.filter(function(p) { return p.port !== 7; }).map(function(p) {
-		var info = psePortMap[p.port] || { name: 'P' + p.port, label: '?', color: 'var(--ds-text-muted)' };
-		return aui.tile({
-			title: 'P' + p.port + ' ' + info.name,
-			value: p.iq + ' / ' + p.oq,
-			accent: p.drops > 0 ? 'var(--ds-error)' : 'var(--ds-border)',
-			sub: 'IQ / OQ' + (p.drops > 0 ? ' · ' + _('Drop') + ' ' + aui.fmtK(p.drops) : '')
-		});
-	});
-
-	// Reserved-memory regions — surfaced as a collapsible table so the addresses
-	// behind the summary tile's total are inspectable without cluttering the page.
-	var mem = Array.isArray(st.memory_regions) ? st.memory_regions : [];
-	var memRows = mem.map(function(r) {
-		return [ (r.name || '') + ' (' + (r.size || '') + ')', (r.start || '—') + ' → ' + (r.end || '—') ];
-	});
-
-	return E('div', { 'id': 'fe-diagram' }, [
-		wifiBanner,
-		aui.bar({
-			title: 'PSE Shared Buffer', right: (fe.pse_used || 0) + ' ' + _('used') + ' / ' + (fe.pse_free || 0) + ' ' + _('free') + ' (' + aui.fmtPct(pseP) + ')',
-			pct: pseP, accent: pseCol
-		}),
-		E('div', { 'class': 'ai-subhead' }, 'GDM Ports'),
-		E('div', { 'class': 'ai-grid ai-grid--3' }, gdmPorts.map(function(p) {
-			var pse = (p.pse !== undefined && p.pse !== null) ? p.pse : '?';
-			return gdmCard(p.key, portName(p), portLabel(p), portAccent(p), 'P' + pse);
-		})),
-		E('div', { 'class': 'ai-subhead' }, hasWifi ? 'CPU DMA / WiFi DMA' : 'CPU DMA'),
-		E('div', { 'class': 'ai-grid ai-grid--3' }, [
-			cdmCard('cdm1', 'CDM1', 'CPU DMA 1', 'P0'),
-			cdmCard('cdm2', 'CDM2', 'CPU DMA 2', 'P5')
-		].concat(hasWifi ? [ cdm4WiFi ] : [])),
-		E('div', { 'class': 'ai-grid ai-grid--2', 'style': 'margin-top:var(--ds-sp-2)' }, [ ppeCard, npuCard ]),
-		E('div', { 'class': 'ai-subhead' }, 'PSE Port Queue Status'),
-		E('div', { 'class': 'ai-grid ai-grid--pse' }, portCells),
-		mem.length ? aui.details(_('Reserved Memory') + ' · ' + mem.length + ' ' + _('memory regions'), aui.kv(memRows)) : null
-	]);
+	return E('div', { 'class': 'ai-grid ai-grid--2', 'style': 'margin-top:var(--ds-sp-2)' }, [ ppeCard, npuCard ]);
 }
 
 /* ── PPE flow table ── */
-var PPE_SHOWN_MAX = 100;
+var PPE_SHOWN_MAX = 50;
+var ppeStateFilter = '', ppeTypeFilter = '', ppePage = 0;
+var ppeCurrentEntries = [], ppeCurrentMeta = {};
+
+function filteredPpeEntries(entries) {
+	return (entries || []).filter(function(e) {
+		return e && (!ppeStateFilter || e.state === ppeStateFilter) &&
+			(!ppeTypeFilter || String(e.type).split(' ')[0] === ppeTypeFilter);
+	});
+}
 
 /* Header badge: how many entries the backend returned, the v4/v6 split, how
  * many are actually rendered, and how many were dropped by the client cap. */
 function ppeCountText(entries) {
 	entries = entries || [];
-	var total = entries.length;
-	var shown = Math.min(total, PPE_SHOWN_MAX);
-	var v4 = 0, v6 = 0;
-	entries.forEach(function(e) {
-		if (e && String(e.type || '').indexOf('IPv6') >= 0) v6++; else v4++;
-	});
-	var s = total + ' ' + _('flows') + ' · v4 ' + v4 + ' / v6 ' + v6 + ' · ' + _('showing') + ' ' + shown;
-	if (total > shown) s += ' · ' + _('truncated') + ' ' + (total - shown);
+	if (ppeCurrentMeta.available === false) return _('PPE table unavailable');
+	var total = ppeCurrentMeta.total === undefined ? entries.length : ppeCurrentMeta.total;
+	var s = total + ' ' + _('flows') + ' · BND ' +
+		(ppeCurrentMeta.bound || 0) + ' / UNB ' + (ppeCurrentMeta.unbound || 0) +
+		' · IPv4 ' + (ppeCurrentMeta.ipv4 || 0) + ' / IPv6 ' + (ppeCurrentMeta.ipv6 || 0) +
+		' / L2B ' + (ppeCurrentMeta.l2b || 0);
+	if (ppeCurrentMeta.truncated) s += ' · ' + _('showing') + ' ' + entries.length + ' / ' + total;
 	return s;
 }
 
 function ppeRows(entries) {
+	entries = filteredPpeEntries(entries);
 	if (!entries || !entries.length)
-		return [ E('tr', {}, [ E('td', { 'colspan': '6' }, aui.empty(_('No data'))) ]) ];
-	return entries.slice(0, PPE_SHOWN_MAX).map(function(e) {
+		return [ E('tr', {}, [ E('td', { 'colspan': '9' }, aui.empty(ppeCurrentMeta.available === false ? _('PPE table unavailable') : _('No matching flows'))) ]) ];
+	return entries.slice(ppePage * PPE_SHOWN_MAX, (ppePage + 1) * PPE_SHOWN_MAX).map(function(e) {
 		var eth = e.eth || '';
 		if (eth === '00:00:00:00:00:00->00:00:00:00:00:00') eth = '-';
 		var state = e.state === 'BND' ? aui.badge(e.state, 'bnd') : aui.badge(e.state, 'unb');
 		return E('tr', {}, [
-			E('td', { 'class': 'ai-num' }, e.index),
-			E('td', {}, state),
-			E('td', {}, String(e.type || '').indexOf('IPv6') >= 0 ? E('span', { 'style': 'color:var(--ai-band-6)' }, e.type) : e.type),
+			E('td', { 'class': 'ai-num', 'data-label': _('Index') }, e.index),
+			E('td', { 'data-label': _('State') }, state),
+			E('td', { 'data-label': _('Type') }, e.type + (e.proto ? ' ' + e.proto : '')),
+			E('td', { 'data-label': 'VLAN' }, e.vlan || '-'),
 			E('td', { 'data-label': _('Original Flow'), 'style': 'color:var(--ai-npu)' }, e.orig || '-'),
 			E('td', { 'data-label': _('New Flow') }, e.new_flow || '-'),
-			E('td', { 'data-label': _('Ethernet') }, eth)
+			E('td', { 'data-label': _('Ethernet') }, eth),
+			E('td', { 'data-label': _('Packets'), 'class': 'ai-num' }, e.packets === null || e.packets === undefined ? 'N/A' : String(e.packets)),
+			E('td', { 'data-label': _('Bytes'), 'class': 'ai-num' }, e.bytes === null || e.bytes === undefined ? 'N/A' : String(e.bytes))
 		]);
 	});
 }
 
 function renderPpeTable(entries) {
-	return E('div', { 'class': 'ai-table-wrap' }, [
+	function selectFilter(label, values, change) {
+		return E('select', { 'aria-label': label, 'change': function(event) {
+			change(event.target.value);
+			ppePage = 0;
+			updatePpeTable(ppeCurrentEntries);
+		} }, [E('option', { value: '' }, label)].concat(values.map(function(value) {
+			return E('option', { value: value }, value);
+		})));
+	}
+	var tools = E('div', { 'style': 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px' }, [
+		selectFilter(_('All states'), ['BND', 'UNB', 'FIN'], function(value) { ppeStateFilter = value; }),
+		selectFilter(_('All types'), ['IPv4', 'IPv6', 'L2B', 'DS-LITE', '6RD'], function(value) { ppeTypeFilter = value; }),
+		E('button', { 'type': 'button', 'class': 'cbi-button', 'id': 'ppe-prev', 'title': _('Previous page'),
+			'aria-label': _('Previous page'), 'style': 'width:32px;height:32px', 'click': function() {
+				ppePage = Math.max(0, ppePage - 1); updatePpeTable(ppeCurrentEntries);
+			} }, '\u2039'),
+		E('span', { 'id': 'ppe-page', 'style': 'min-width:6em;text-align:center;font-variant-numeric:tabular-nums' }, '1 / 1'),
+		E('button', { 'type': 'button', 'class': 'cbi-button', 'id': 'ppe-next', 'title': _('Next page'),
+			'aria-label': _('Next page'), 'style': 'width:32px;height:32px', 'click': function() {
+				ppePage++; updatePpeTable(ppeCurrentEntries);
+			} }, '\u203a')
+	]);
+	return E('div', {}, [tools, E('div', { 'class': 'ai-table-wrap' }, [
 		E('table', { 'class': 'ai-table ai-table--mono ai-table--stack', 'id': 'ppe-entries-table' }, [
 			E('thead', {}, [
 				E('tr', {}, [
 					E('th', { 'scope': 'col' }, _('Index')), E('th', { 'scope': 'col' }, _('State')),
-					E('th', { 'scope': 'col' }, _('Type')), E('th', { 'scope': 'col' }, _('Original Flow')),
-					E('th', { 'scope': 'col' }, _('New Flow')), E('th', { 'scope': 'col' }, _('Ethernet'))
+					E('th', { 'scope': 'col' }, _('Type')), E('th', { 'scope': 'col' }, 'VLAN'),
+					E('th', { 'scope': 'col' }, _('Original Flow')), E('th', { 'scope': 'col' }, _('New Flow')),
+					E('th', { 'scope': 'col' }, _('Ethernet')), E('th', { 'scope': 'col' }, _('Packets')),
+					E('th', { 'scope': 'col' }, _('Bytes'))
 				])
 			]),
 			E('tbody', {}, ppeRows(entries))
 		])
-	]);
+	])]);
 }
 
-function updatePpeTable(entries) {
+function updatePpeTable(entries, metadata) {
+	ppeCurrentEntries = entries || [];
+	if (metadata) ppeCurrentMeta = metadata;
+	var filtered = filteredPpeEntries(ppeCurrentEntries);
+	var pages = Math.max(1, Math.ceil(filtered.length / PPE_SHOWN_MAX));
+	ppePage = Math.max(0, Math.min(ppePage, pages - 1));
 	var tbody = document.querySelector('#ppe-entries-table tbody');
 	if (!tbody) return;
 	tbody.innerHTML = '';
 	ppeRows(entries).forEach(function(row) { tbody.appendChild(row); });
 	var badge = document.getElementById('ppe-count');
 	if (badge) badge.textContent = ppeCountText(entries);
+	var page = document.getElementById('ppe-page');
+	if (page) page.textContent = (ppePage + 1) + ' / ' + pages;
+	var previous = document.getElementById('ppe-prev'), next = document.getElementById('ppe-next');
+	if (previous) previous.disabled = ppePage === 0;
+	if (next) next.disabled = ppePage + 1 >= pages;
 }
 
 /* ── Main view ── */
 return view.extend({
 	load: function() {
-		// Progressive rendering: don't block on RPC calls, let the page render immediately
+		// Progressive rendering: don't block on RPC calls, let the page render
+		// immediately. Stylesheet goes in here (not in render) so it is already
+		// applied when the view node is inserted — no width flash, matching the
+		// fancontrol views' approach.
+		aui.ensureCss();
 		return Promise.resolve([]);
 	},
 
@@ -709,15 +780,14 @@ return view.extend({
 		// Flow Offload value in the VLAN slot) the moment load() starts
 		// returning data. Whenever the Promise.all order below changes, update
 		// this block in the same commit.
-		var st = data[0] || {}, ppe = data[1] || {}, ti = data[2] || {}, fe = data[3] || {};
-		var flo = data[4] || { enabled: 0 };
-		var apo = data[5] || { enabled: 0 };
-		var dm = data[6] || {};
-		var topo = data[7] || {};
-		var vo = data[8] || { enabled: 0 };
+		var st = data[0] || {}, ppe = data[1] || {}, ti = data[2] || {};
+		var flo = data[3] || { enabled: 0 };
+		var apo = data[4] || { enabled: 0 };
+		var dm = data[5] || {};
+		var topo = data[6] || {};
+		var vo = data[7] || { enabled: 0 };
 		var bridgeBlocked = isBridgeOffloadBlocked(dm);
 		var entries = Array.isArray(ppe.entries) ? ppe.entries : [];
-		var ppeUpdatesPaused = false;
 		var latestPpeEntries = entries;
 		var ppeRequestSequence = 0;
 		var latestPpeRequest = 0;
@@ -733,41 +803,25 @@ return view.extend({
 				updatedEl.textContent = _('Updated %s').format(new Date().toLocaleTimeString());
 		}
 
-		var refreshBtn = E('button', { 'type': 'button', 'class': 'ai-btn ai-btn--primary' }, _('Refresh'));
-		refreshBtn.addEventListener('click', function() {
-			var self = refreshBtn, orig = self.textContent;
-			self.disabled = true;
-			self.textContent = _('Refreshing…');
-			var done = function() { self.disabled = false; self.textContent = orig; };
-			Promise.resolve(fetchData()).then(done, done);
-		});
-
-		var ppePauseButton = E('button', {
-			'type': 'button',
-			'class': 'ai-btn',
-			'title': _('Pause'),
-			'aria-pressed': 'false',
-			'click': function(ev) {
-				ppeUpdatesPaused = !ppeUpdatesPaused;
-				var label = ppeUpdatesPaused ? _('Resume') : _('Pause');
-				ev.currentTarget.textContent = label;
-				ev.currentTarget.title = label;
-				ev.currentTarget.setAttribute('aria-pressed', ppeUpdatesPaused ? 'true' : 'false');
-				ev.currentTarget.className = 'ai-btn' + (ppeUpdatesPaused ? ' ai-btn--active' : '');
-				if (!ppeUpdatesPaused) updatePpeTable(latestPpeEntries);
-			}
-		}, _('Pause'));
-
+		// The page auto-polls every 5 s; the only "refresh" affordance is the
+		// system-level updated-time stamp on the right. Manual Refresh /
+		// Pause-Resume buttons were removed — they conflicted with it.
 		updatedEl = E('span', { 'class': 'ai-updated' }, '');
 
+		// Width policy: the root carries no width rules of its own (fancontrol
+		// style) — the layout inherits the theme's content width, so the
+		// late-injected stylesheet never changes geometry (no width flash).
 		var view = E('div', { 'class': 'cbi-map airoha-page' }, [
 			E('header', { 'class': 'ai-pagehead' }, [
 				E('h2', {}, _('Airoha SoC Status')),
-				E('p', { 'class': 'ai-lede' }, _('CPU frequency, NPU and frame engine, hardware offload switches · source luci.airoha_npu (5 s poll)'))
-			]),
-			E('div', { 'class': 'ai-toolbar' }, [ refreshBtn, ppePauseButton, E('span', { 'class': 'ai-spacer' }), updatedEl ]),
+		]),
 
-			// CPU Frequency
+			aui.section({
+				title: _('Ethernet Ports'),
+				body: E('div', { 'id': 'ethernet-ports' }, renderEthernetPorts(topo))
+			}),
+
+		// CPU Frequency
 			aui.section({
 				title: _('CPU Frequency'),
 				body: E('div', {}, [
@@ -781,27 +835,24 @@ return view.extend({
 				])
 			}),
 
-			// NPU & Frame Engine (unified)
+			// NPU and hardware offload controls/status.
 			aui.section({
 				title: _('NPU & Offload Engine'),
-				hint: _('Switches here are write operations; the same values are mirrored read-only on the FlowSense tab so there is only one place to change them.'),
+				hint: _('Switches here apply the hardware offload settings for this device.'),
 				body: E('div', {}, [
 					renderSummary(st, ti),
-					E('div', { 'class': 'ai-grid ai-grid--2', 'style': 'margin-top:var(--ds-sp-3)' }, [
-						renderOffloadSwitch({ rowId: 'vlan-offload-row', inputId: 'vlan-offload-select', badgeId: 'vlan-offload-badge', name: _('VLAN Offload'), note: 'bridge-nf-filter-vlan-tagged / pass-vlan-input-dev', enabled: vo.enabled, blocked: bridgeBlocked, callFn: function(v) { return callSetVlanOffload(v); } }),
-						renderOffloadSwitch({ rowId: 'flow-offload-row', inputId: 'flow-offload-select', badgeId: 'flow-offload-badge', name: _('Flow Offload'), note: 'firewall.flow_offloading + _hw', enabled: flo.enabled, blocked: false, callFn: function(v) { return callSetFlowOffload(v); } }),
-						renderOffloadSwitch({ rowId: 'apmode-offload-row', inputId: 'apmode-offload-select', badgeId: 'apmode-offload-badge', name: _('AP Mode Acceleration'), note: 'br_netfilter · PPPoE passthrough', enabled: apo.enabled, blocked: bridgeBlocked, callFn: function(v) { return callSetApModeOffload(v); } })
-					]),
-					E('div', { 'class': 'ai-subhead' }, _('Frame Engine')),
-					E('div', { 'id': 'fe-container' }, renderFeDiagram(fe, ti, st, ppe, topo))
+					E('div', { 'id': 'offload-controls', 'style': 'margin-top:var(--ds-sp-3)' },
+						renderOffloadControls(topo, vo, flo, apo, bridgeBlocked)),
+					E('div', { 'id': 'engine-status' }, renderEngineStatus(st, ppe))
 				])
 			}),
+
+			E('div', { 'id': 'wifi-detail' }),
 
 			// PPE Flow Table
 			aui.section({
 				title: _('PPE Flow Offload Entries'),
 				count: ppeCountText(entries), countId: 'ppe-count',
-				hint: _('BND = bound to hardware (NPU path); UNB = learning (CPU path). The client renders the first 100 rows.'),
 				body: renderPpeTable(entries)
 			})
 		]);
@@ -816,30 +867,33 @@ return view.extend({
 			var requestSequence = ++ppeRequestSequence;
 			return Promise.all([
 				_safeCall(callNpuStatus(), {}),
-				_safeCall(callPpeEntries(), { entries: [] }),
+				_safeCall(callPpeEntries(), { available: false, entries: [] }),
 				_safeCall(callTokenInfo(), {}),
-				_safeCall(callFrameEngine(), {}),
 				_safeCall(callGetFlowOffload(), { enabled: 0 }),
 				_safeCall(callGetApModeOffload(), { enabled: 0 }),
 				_safeCall(callGetDeviceMode(), { bridge_offload_blocked: false }),
 				_safeCall(callGetTopology(), {}),
 				// VLAN Offload rejoined as an independent switch; appended at the
 				// END so every existing d[n] index below keeps its meaning.
-				_safeCall(callGetVlanOffload(), { enabled: 0 })
+				_safeCall(callGetVlanOffload(), { enabled: 0 }),
+				_safeCall(callGetWifiStats(), { available: false, bands: [] })
 			]).then(L.bind(function(d) {
 				aui.ensureCss();
-				var st = d[0] || {}, ppe = d[1] || {}, ti = d[2] || {}, fe = d[3] || {};
-				var flo = d[4] || { enabled: 0 };
-				var apo = d[5] || { enabled: 0 };
-				var dm = d[6] || {};
-				var topo = d[7] || {};
-				var vo = d[8] || { enabled: 0 };
+				var st = d[0] || {}, ppe = d[1] || {}, ti = d[2] || {};
+				var flo = d[3] || { enabled: 0 };
+				var apo = d[4] || { enabled: 0 };
+				var dm = d[5] || {};
+				var topo = d[6] || {};
+				var vo = d[7] || { enabled: 0 };
+				var wifi = d[8] || { available: false, bands: [] };
+				if (typeof wifi.has_wifi !== 'boolean' && typeof ti.has_wifi === 'boolean')
+					wifi.has_wifi = ti.has_wifi;
 				var bridgeBlocked = isBridgeOffloadBlocked(dm);
 				var entries = Array.isArray(ppe.entries) ? ppe.entries : [];
 				if (requestSequence > latestPpeRequest) {
 					latestPpeRequest = requestSequence;
 					latestPpeEntries = entries;
-					if (!ppeUpdatesPaused) updatePpeTable(latestPpeEntries);
+					updatePpeTable(latestPpeEntries, ppe);
 				}
 				updateSummary(st, ti);
 
@@ -847,14 +901,10 @@ return view.extend({
 				var ci = document.getElementById('cpu-info-content');
 				if (ci) { ci.innerHTML = ''; ci.appendChild(renderCpuInfo(st)); }
 
-				// Freq card — update the bar in place if present, else rebuild the card
-				var freqText = document.getElementById('cpu-freq-text');
-				if (freqText) {
-					updateFreqCard(st);
-				} else {
-					var fc = document.getElementById('cpu-freq-card');
-					if (fc) { fc.innerHTML = ''; fc.appendChild(renderFreqCard(st)); }
-				}
+				// Freq card — always rebuild so the range and scaling_cur_freq rows
+				// never retain their first-render N/A values.
+				var fc = document.getElementById('cpu-freq-card');
+				if (fc) { fc.innerHTML = ''; fc.appendChild(renderFreqCard(st)); }
 
 				// Control settings — the selects now always exist, so their presence can
 				// no longer signal "not rendered yet". Rebuild the container whenever the
@@ -877,8 +927,23 @@ return view.extend({
 				updateOffloadControl('flow-offload-select', 'flow-offload-badge', 'flow-offload-row', flo.enabled, false);
 				updateOffloadControl('apmode-offload-select', 'apmode-offload-badge', 'apmode-offload-row', apo.enabled, bridgeBlocked);
 
-				var fcEl = document.getElementById('fe-container');
-				if (fcEl) { fcEl.innerHTML = ''; fcEl.appendChild(renderFeDiagram(fe, ti, st, ppe, topo)); }
+				var controls = document.getElementById('offload-controls');
+				var controlBoard = String(topo.compatible || '') + ':' + (vo.supported !== false && apo.supported !== false);
+				if (controls && topo.compatible && controls.getAttribute('data-board') !== controlBoard) {
+					controls.replaceChildren(renderOffloadControls(topo, vo, flo, apo, bridgeBlocked));
+					controls.setAttribute('data-board', controlBoard);
+				}
+
+				var engineEl = document.getElementById('engine-status');
+				if (engineEl) engineEl.replaceChildren(renderEngineStatus(st, ppe));
+				var epEl = document.getElementById('ethernet-ports');
+				if (epEl) { epEl.innerHTML = ''; epEl.appendChild(renderEthernetPorts(topo)); }
+				var wifiEl = document.getElementById('wifi-detail');
+				if (wifiEl) {
+					wifiEl.replaceChildren();
+					var wifiDetails = renderWifiDetails(wifi, ppe, ti, st);
+					if (wifiDetails) wifiEl.appendChild(wifiDetails);
+				}
 
 				markUpdated();
 			}, this)).catch(function(err) {
