@@ -110,7 +110,7 @@ define Device/gemtek_w1700k-ubi
        the end of flash. A reinstall including corrected chainloader is needed.
   DEVICE_PACKAGES := airoha-en7581-mt7996-npu-firmware airoha-an7581-mt7996-board fitblk \
 		    kmod-hwmon-nct7802 kmod-mt7996-firmware wpad-openssl \
-		    rtl826x-firmware rtl8261c-firmware
+		    rtl826x-firmware
   UBINIZE_OPTS := -E 5
   BLOCKSIZE := 128k
   PAGESIZE := 2048
@@ -189,8 +189,6 @@ define Device/nokia_xg-040g-md-ubi
 endef
 TARGET_DEVICES += nokia_xg-040g-md-ubi
 
-<<<<<<< HEAD
-=======
 define Device/gemtek_xr1710g-common
   DEVICE_VENDOR := Gemtek
   DEVICE_MODEL := XR1710G
@@ -273,7 +271,6 @@ define Device/gemtek_xg2010g-ubi
 endef
 TARGET_DEVICES += gemtek_xg2010g-ubi
 
->>>>>>> refs/remotes/upstream/master
 define Device/quantum_q1000k-ubi
   DEVICE_VENDOR := Quantum Fiber
   DEVICE_MODEL := Q1000K

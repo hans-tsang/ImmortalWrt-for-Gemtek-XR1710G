@@ -24,109 +24,125 @@ recorded here.
 
 ## 2026-10-01
 
-### XG2010G FIT 动态扩容与产物检查
+### XG2010G FIT resizing and artifact validation
 
-- 修正将当前 339-LEB `fit` 动态卷误当成固定分区上限的问题。U-Boot 和
-  sysupgrade 都会保留 `fip`、`ubootenv`、`ubootenv2`、`factory`，删除
-  `rootfs_data` 后按新镜像大小重建 `fit`；因此将构建上限调整为 U-Boot
-  `0x90000000`/`0x94000000` 双缓冲允许的 64 MiB。
-- GitHub Actions 和远程 world 构建现在逐一检查所选设备的 sysupgrade ITB，
-  防止 `check-size` 删除超限镜像后仍把仅生成 manifest 的构建报告为成功。
+- Fixed the assumption that the current 339-LEB dynamic `fit` volume is a fixed
+  partition limit. U-Boot and sysupgrade preserve `fip`, `ubootenv`, `ubootenv2`,
+  and `factory`, remove `rootfs_data`, then recreate `fit` to match the new
+  image size. The build limit is now 64 MiB, matching U-Boot's
+  `0x90000000`/`0x94000000` double-buffer range.
+- GitHub Actions and remote world builds now check each selected device's
+  sysupgrade ITB, preventing a build that produced only a manifest from being
+  reported as successful after `check-size` removed an oversized image.
 
 ## 2026-09-30
 
-### XG2010G 固件生成与 ONU 包改名
+### XG2010G firmware generation and ONU package rename
 
-- 将 XG2010G 配置选择从 `luci-app-pon` 更新为改名后的 `luci-app-onu`，并同步
-  XR1710G 的隔离规则和文档引用。
-- 禁用 XG2010G 的 initramfs 目标，避免并行构建时 initramfs 内核覆盖普通内核，
-  随后又在 FIT 中追加 squashfs，造成固件尺寸重复并被 `IMAGE_SIZE` 检查删除。
-- XG2010G 不再选择 `luci-theme-glass`，XR1710G 配置继续提供该主题。
-- profile 隔离检查现在要求 `luci-app-onu`，并拒绝 XG2010G 配置重新启用
-  initramfs。
+- Updated the XG2010G config from `luci-app-pon` to its renamed package,
+  `luci-app-onu`, and synchronized the XR1710G isolation rules and documentation.
+- Disabled the XG2010G initramfs target to prevent parallel builds from
+  overwriting the normal kernel with an initramfs kernel before appending
+  squashfs to the FIT, which duplicated the firmware contents and failed the
+  `IMAGE_SIZE` check.
+- XG2010G no longer selects `luci-theme-glass`; the XR1710G config still does.
+- The profile isolation check now requires `luci-app-onu` and rejects enabling
+  initramfs in the XG2010G config.
 
 ## 2026-09-28
 
-### XG2010G PON 用户态与 LuCI
+### XG2010G PON userspace and LuCI
 
-- 将 `pon_userspace` feed 从 `pbs05/openwrt-pon-userspace` 切换到
-  `naoki66/openwrt-pon-userspace`。
-- 使用新版 `luci-app-pon` 的“网络 → ONU”菜单，按状态、硬件身份、认证配置、
-  IPTV、语音和诊断组织页面。
-- IPTV 页面、ACL、UCI 配置和应用服务已并入 `luci-app-pon`，从 XG2010G
-  配置中移除已废弃的独立 `luci-app-iptv` 包选择。
-- `pon_userspace` feed 和 `luci-app-pon` 仅由 XG2010G 的 `2010.config` 启用，
-  XR1710G 的 `1710.config` 明确保持禁用。
+- Switched the `pon_userspace` feed from `pbs05/openwrt-pon-userspace` to
+  `naoki66/openwrt-pon-userspace`.
+- Organized the new `luci-app-pon` pages under Network → ONU by status, hardware
+  identity, authentication, IPTV, voice, and diagnostics.
+- Moved the IPTV page, ACL, UCI configuration, and application services into
+  `luci-app-pon`, and removed the deprecated standalone `luci-app-iptv` package
+  selection from the XG2010G config.
+- Enabled the `pon_userspace` feed and `luci-app-pon` only in the XG2010G
+  `2010.config`; they remain explicitly disabled in the XR1710G `1710.config`.
 
 ## 2026-09-23
 
-本条目覆盖 XR1710G 从 `20260916-e8702ccc61` 到 `b94f6f29b3` 的变更。同期
-XG2010G 专属的 PON、ToD、BoB 和 PCM/语音功能不计入 XR1710G 运行面。
+This entry covers XR1710G changes from `20260916-e8702ccc61` to
+`b94f6f29b3`. XG2010G-specific PON, ToD, BoB, and PCM/voice functionality from
+the same period is not part of the XR1710G runtime.
 
-### 上游同步
+### Upstream sync
 
-- 合并 ImmortalWrt `master` 至 `b80b090e8e`，本地 merge commit 为
-  `b94f6f29b3`；此前还通过 `669668ec3e` 和 `ba2d9bc4f3` 引入上游。
-- Linux 6.18 从 `.44` 更新到 `.52`，包含 6.18.45 至 6.18.52 的稳定版
-  修复，并同步刷新 Airoha、Realtek PHY 和通用内核补丁上下文。
-- 引入 Airoha 上游改动，包括 Quantum Fiber Q1000K、RX ring 扩容、
-  AN7583 PCIe Gen3 PHY，以及 phylink/PCS 相关修复。
-- 引入 netifd、mac80211、procd、odhcpd、dnsmasq、dropbear 和 comgt
-  等共享软件包更新；其中 mt76 TX worker CPU 绑定和流卸载修复对 XR1710G
-  的无线与转发路径有直接影响。
+- Merged ImmortalWrt `master` through `b80b090e8e` in local merge commit
+  `b94f6f29b3`; earlier upstream syncs were brought in through `669668ec3e` and
+  `ba2d9bc4f3`.
+- Updated Linux 6.18 from `.44` to `.52`, including stable fixes from 6.18.45
+  through 6.18.52, and refreshed Airoha, Realtek PHY, and generic kernel patch
+  context.
+- Added Airoha upstream changes including Quantum Fiber Q1000K, RX ring
+  expansion, the AN7583 PCIe Gen3 PHY, and phylink/PCS fixes.
+- Synced shared software updates including netifd, mac80211, procd, odhcpd,
+  dnsmasq, dropbear, and comgt. The mt76 TX worker CPU affinity and flow
+  offloading fixes directly affect XR1710G wireless and forwarding.
 
-### XR1710G 设备与网络
+### XR1710G device and networking
 
-- 为 XR1710G 的 Airoha I2C 控制器设置 `airoha,airoha-i2c` 兼容项和
-  400 kHz 总线频率，继续支持 NCT7802 硬件监控。
-- 增加 AN7581 10G PCS link bring-up 修复，覆盖 JCPLL/TCLVAR、PCS
-  restart 和按接口跟踪 PCS 状态。
-- 同步 phylink PCS 到 v15 API：PCS provider 使用引用计数式
-  acquire/release，PCS list 由 state mutex 保护，并补齐 PCS disable、
-  link down 和 major configuration 强制重建路径。
-- 修复 RTL8261BE/RTL8261N USXGMII SerDes reset work 与 PHY teardown
-  的竞态：PHY 离开 running 状态时禁止并停用 delayed work，阻止旧 work
-  在设备关闭后继续访问 SerDes 或重新排队。
-- Airoha MAC 在共享 QDMA 停止后断开 PHY，避免重新打开接口时复用已被
-  teardown 的 link state。
-- 将 MT7996 板级默认值、无线缓冲区、PPE reload 和 packet steering
-  移入 `airoha-an7581-mt7996-board`，由 XR1710G/W1700K 选择。
-- 明确排除 PON firmware/manager、xPON、GPON IGMP、PON VLAN、ToD 和
-  PCM/语音组件，避免 XG2010G 功能进入 XR1710G 镜像或内核配置。
-- 对照 `immortalwrt_pon` 的 `675-01`、`675-02` 和 `675-09` 补充桥接
-  conntrack 的 PPPoE、PPPoE-in-Q 和双层 VLAN（内层 802.1Q，外层
-  802.1Q/802.1ad）跟踪；修复非零 network offset 下的 L3/L4 校验和计算。
-- 在 XR1710G 的 XFRM/SOE flow offload 补丁之后检查 `nft_thoff()`：
-  未解析 L4 偏移时跳过卸载，保留软件转发，避免双层 VLAN/PPPoE 流量
-  被错误绑定到 PPE；现有 `meta l4proto { tcp, udp }` firewall4 规则不受影响。
+- Set the XR1710G Airoha I2C controller's `airoha,airoha-i2c` compatible and
+  400 kHz bus frequency to retain NCT7802 hardware monitoring support.
+- Added AN7581 10G PCS link bring-up fixes covering JCPLL/TCLVAR, PCS restart,
+  and per-interface PCS state tracking.
+- Updated phylink PCS to the v15 API: providers use reference-counted
+  acquire/release, the PCS list is protected by the state mutex, and PCS
+  disable, link down, and forced major-configuration rebuild paths are covered.
+- Fixed a race between RTL8261BE/RTL8261N USXGMII SerDes reset work and PHY
+  teardown. Leaving the running state disables and stops delayed work, so old
+  work cannot access the SerDes after shutdown or requeue itself.
+- The Airoha MAC now disconnects the PHY after stopping shared QDMA, preventing
+  a reopened interface from reusing link state that has already been torn down.
+- Moved MT7996 board defaults, wireless buffers, PPE reload, and packet
+  steering into `airoha-an7581-mt7996-board`, selected by XR1710G/W1700K.
+- Explicitly excluded PON firmware/manager, xPON, GPON IGMP, PON VLAN, ToD, and
+  PCM/voice components to keep XG2010G functionality out of XR1710G images and
+  kernel configs.
+- Following `immortalwrt_pon` patches `675-01`, `675-02`, and `675-09`, added
+  bridge conntrack support for PPPoE, PPPoE-in-Q, and double VLAN tags (inner
+  802.1Q; outer 802.1Q/802.1ad), and fixed L3/L4 checksum calculation with a
+  nonzero network offset.
+- Added an `nft_thoff()` check after XR1710G's XFRM/SOE flow-offloading patch:
+  skip offloading when the L4 offset is unresolved and keep software forwarding,
+  preventing double-tagged VLAN/PPPoE traffic from being incorrectly bound to
+  PPE. Existing `meta l4proto { tcp, udp }` firewall4 rules are unaffected.
 
-### LuCI 与 Mesh
+### LuCI and Mesh
 
-- `luci-app-airoha` 统一 NPU 与 FlowSense 页面，状态和端口拓扑按设备树
-  生成，补充 CPU governor/max_freq 持久化、刷新时间、暗色主题和中英文翻译。
-- `luci-app-mesh-conf` 增加 DAWN 客户端引导、802.11k/v/r 支持和 6 GHz
-  频段补丁，并修复同步服务自愈、执行位和 SAE key 被空值覆盖的问题。
-- 新栈 `airoha-ponctl`、`airoha-pond`、`luci-app-pon`、ToD PHC 和 EN7581
-  PCM-SPI 语音功能仅进入 XG2010G 配置，不随 XR1710G 构建。
+- `luci-app-airoha` unifies the NPU and FlowSense pages, generates status and
+  port topology from the device tree, and adds persistent CPU governor/max_freq
+  settings, refresh timing, dark-theme support, and bilingual translations.
+- `luci-app-mesh-conf` adds DAWN client onboarding, 802.11k/v/r support, and a
+  6 GHz band patch, and fixes sync-service recovery, executable permissions,
+  and empty values overwriting SAE keys.
+- The new `airoha-ponctl`, `airoha-pond`, `luci-app-pon`, ToD PHC, and EN7581
+  PCM-SPI voice stack is selected only in the XG2010G config, not XR1710G builds.
 
-### 构建与版本
+### Build and versioning
 
-- 新增 `1710.config` 与 `2010.config` 双配置构建入口，GitHub Actions 可选择
-  设备配置，release 名称和文件名会包含对应型号。
-- 固件版本改为根据 `CONFIG_TARGET_PROFILE` 自动识别 XR1710G/XG2010G。
-- 新增 Gemtek profile 隔离检查，在构建前检查配置，在构建后检查 kernel
-  config 和 image manifest，防止 XR1710G 与 XG2010G 包集合互相污染。
-- 远程构建脚本支持选择 1710 或 2010 配置，构建失败时会尝试带 `V=s`
-  重新编译并保留详细日志。
+- Added separate `1710.config` and `2010.config` build entry points. GitHub
+  Actions can select a device config, and release names and files include the
+  corresponding model.
+- Firmware versions now identify XR1710G/XG2010G automatically from
+  `CONFIG_TARGET_PROFILE`.
+- Added Gemtek profile isolation checks for config before builds and kernel
+  config/image manifests after builds, preventing package-set crossover between
+  XR1710G and XG2010G.
+- Remote build scripts can select either device config and retry failed builds
+  with `V=s`, preserving detailed logs.
 
-### 验证
+### Validation
 
-- `git diff --check` 通过。
-- XR1710G 和 XG2010G 的 profile 隔离检查均通过。
-- 本轮未执行完整固件构建。
+- `git diff --check` passed.
+- XR1710G and XG2010G profile isolation checks passed.
+- A full firmware build was not run in this round.
 
-关键提交：`4b4ed05f79`、`31eda9dc56`、`4ebc4c2c9b`、`759359070c`、
-`b94f6f29b3`。
+Key commits: `4b4ed05f79`, `31eda9dc56`, `4ebc4c2c9b`, `759359070c`,
+`b94f6f29b3`.
 
 ## 2026-09-14
 

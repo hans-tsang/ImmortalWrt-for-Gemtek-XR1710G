@@ -111,7 +111,7 @@ index 30dc22f..ca5ed05 100644
 +					radio.renderedOnce = true;
 +				}
 +				else if (!radio.renderedOnce) {
-+					cbi_update_table(radio.table, [], E('em', {}, 'Scan failed / 扫描失败，请重试'));
++					cbi_update_table(radio.table, [], E('em', {}, 'Scan failed; please try again'));
 +				}
 +
 +				radio.loadedOnce = true;
@@ -122,7 +122,7 @@ index 30dc22f..ca5ed05 100644
 +			poll.stop();
 +
 +			if (!radio.renderedOnce)
-+				cbi_update_table(radio.table, [], E('em', {}, 'Scan failed / 扫描失败，请重试'));
++				cbi_update_table(radio.table, [], E('em', {}, 'Scan failed; please try again'));
 +		}, this)).then(function() {
 +			radio.scanning = false;
 +		});

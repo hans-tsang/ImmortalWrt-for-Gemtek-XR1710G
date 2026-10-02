@@ -2,21 +2,6 @@ RAMFS_COPY_BIN='fitblk fit_check_sign'
 
 REQUIRE_IMAGE_METADATA=1
 
-<<<<<<< HEAD
-# Boards that only exist in this fork.  They are handled in dedicated blocks
-# below instead of being added to the upstream case statements, so that new
-# upstream boards never conflict with them during an automatic sync.
-local_fit_boards() {
-	case "$1" in
-	gemtek,xg2010g-ubi|\
-	gemtek,xg2010g|\
-	gemtek,xr1710g-ubi)
-		return 0
-		;;
-	esac
-
-	return 1
-=======
 . /lib/upgrade/gemtek-ubi.sh
 
 airoha_require_ubi_layout()
@@ -41,7 +26,6 @@ airoha_require_ubi_layout()
 		echo "The fip volume does not contain BL31/U-Boot; install the boot chain first."
 		return 1
 	}
->>>>>>> refs/remotes/upstream/master
 }
 
 nokia_initial_setup()
@@ -56,18 +40,11 @@ platform_check_image() {
 
 	[ "$#" -gt 1 ] && return 1
 
-	if local_fit_boards "$board"; then
-		fit_check_image "$1"
-		return $?
-	fi
-
 	case "$board" in
 	nokia,xg-040g-md)
 		nand_do_platform_check "$board" "$1"
 		return $?
 		;;
-<<<<<<< HEAD
-=======
 	gemtek,xg2010g-ubi|\
 	gemtek,xg2010g|\
 	gemtek,xr1710g-ubi)
@@ -78,7 +55,6 @@ platform_check_image() {
 		fit_check_image "$1"
 		return $?
 		;;
->>>>>>> refs/remotes/upstream/master
 	nokia,xg-040g-md-ubi|\
 	quantum,q1000k-ubi)
 		fit_check_image "$1"
@@ -92,15 +68,7 @@ platform_check_image() {
 platform_do_upgrade() {
 	local board=$(board_name)
 
-	if local_fit_boards "$board"; then
-		fit_do_upgrade "$1"
-		return
-	fi
-
 	case "$board" in
-<<<<<<< HEAD
-		gemtek,w1700k-ubi|\
-=======
 		gemtek,xg2010g-ubi|\
 		gemtek,xr1710g-ubi|\
 		gemtek,xg2010g)
@@ -109,7 +77,6 @@ platform_do_upgrade() {
 			;;
 		gemtek,w1700k-ubi|\
 		gemtek,xr1710g|\
->>>>>>> refs/remotes/upstream/master
 		nokia,xg-040g-md-ubi|\
 		quantum,q1000k-ubi)
 			fit_do_upgrade "$1"
