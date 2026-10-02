@@ -22,6 +22,128 @@ recorded here.
   a "Changes in this build" heading. This prevents notes that contradict the
   build, such as claiming that no firmware was built.
 
+## 2026-10-01
+
+### XG2010G FIT resizing and artifact validation
+
+- Fixed the assumption that the current 339-LEB dynamic `fit` volume is a fixed
+  partition limit. U-Boot and sysupgrade preserve `fip`, `ubootenv`, `ubootenv2`,
+  and `factory`, remove `rootfs_data`, then recreate `fit` to match the new
+  image size. The build limit is now 64 MiB, matching U-Boot's
+  `0x90000000`/`0x94000000` double-buffer range.
+- GitHub Actions and remote world builds now check each selected device's
+  sysupgrade ITB, preventing a build that produced only a manifest from being
+  reported as successful after `check-size` removed an oversized image.
+
+## 2026-09-30
+
+### XG2010G firmware generation and ONU package rename
+
+- Updated the XG2010G config from `luci-app-pon` to its renamed package,
+  `luci-app-onu`, and synchronized the XR1710G isolation rules and documentation.
+- Disabled the XG2010G initramfs target to prevent parallel builds from
+  overwriting the normal kernel with an initramfs kernel before appending
+  squashfs to the FIT, which duplicated the firmware contents and failed the
+  `IMAGE_SIZE` check.
+- XG2010G no longer selects `luci-theme-glass`; the XR1710G config still does.
+- The profile isolation check now requires `luci-app-onu` and rejects enabling
+  initramfs in the XG2010G config.
+
+## 2026-09-28
+
+### XG2010G PON userspace and LuCI
+
+- Switched the `pon_userspace` feed from `pbs05/openwrt-pon-userspace` to
+  `naoki66/openwrt-pon-userspace`.
+- Organized the new `luci-app-pon` pages under Network → ONU by status, hardware
+  identity, authentication, IPTV, voice, and diagnostics.
+- Moved the IPTV page, ACL, UCI configuration, and application services into
+  `luci-app-pon`, and removed the deprecated standalone `luci-app-iptv` package
+  selection from the XG2010G config.
+- Enabled the `pon_userspace` feed and `luci-app-pon` only in the XG2010G
+  `2010.config`; they remain explicitly disabled in the XR1710G `1710.config`.
+
+## 2026-09-23
+
+This entry covers XR1710G changes from `20260916-e8702ccc61` to
+`b94f6f29b3`. XG2010G-specific PON, ToD, BoB, and PCM/voice functionality from
+the same period is not part of the XR1710G runtime.
+
+### Upstream sync
+
+- Merged ImmortalWrt `master` through `b80b090e8e` in local merge commit
+  `b94f6f29b3`; earlier upstream syncs were brought in through `669668ec3e` and
+  `ba2d9bc4f3`.
+- Updated Linux 6.18 from `.44` to `.52`, including stable fixes from 6.18.45
+  through 6.18.52, and refreshed Airoha, Realtek PHY, and generic kernel patch
+  context.
+- Added Airoha upstream changes including Quantum Fiber Q1000K, RX ring
+  expansion, the AN7583 PCIe Gen3 PHY, and phylink/PCS fixes.
+- Synced shared software updates including netifd, mac80211, procd, odhcpd,
+  dnsmasq, dropbear, and comgt. The mt76 TX worker CPU affinity and flow
+  offloading fixes directly affect XR1710G wireless and forwarding.
+
+### XR1710G device and networking
+
+- Set the XR1710G Airoha I2C controller's `airoha,airoha-i2c` compatible and
+  400 kHz bus frequency to retain NCT7802 hardware monitoring support.
+- Added AN7581 10G PCS link bring-up fixes covering JCPLL/TCLVAR, PCS restart,
+  and per-interface PCS state tracking.
+- Updated phylink PCS to the v15 API: providers use reference-counted
+  acquire/release, the PCS list is protected by the state mutex, and PCS
+  disable, link down, and forced major-configuration rebuild paths are covered.
+- Fixed a race between RTL8261BE/RTL8261N USXGMII SerDes reset work and PHY
+  teardown. Leaving the running state disables and stops delayed work, so old
+  work cannot access the SerDes after shutdown or requeue itself.
+- The Airoha MAC now disconnects the PHY after stopping shared QDMA, preventing
+  a reopened interface from reusing link state that has already been torn down.
+- Moved MT7996 board defaults, wireless buffers, PPE reload, and packet
+  steering into `airoha-an7581-mt7996-board`, selected by XR1710G/W1700K.
+- Explicitly excluded PON firmware/manager, xPON, GPON IGMP, PON VLAN, ToD, and
+  PCM/voice components to keep XG2010G functionality out of XR1710G images and
+  kernel configs.
+- Following `immortalwrt_pon` patches `675-01`, `675-02`, and `675-09`, added
+  bridge conntrack support for PPPoE, PPPoE-in-Q, and double VLAN tags (inner
+  802.1Q; outer 802.1Q/802.1ad), and fixed L3/L4 checksum calculation with a
+  nonzero network offset.
+- Added an `nft_thoff()` check after XR1710G's XFRM/SOE flow-offloading patch:
+  skip offloading when the L4 offset is unresolved and keep software forwarding,
+  preventing double-tagged VLAN/PPPoE traffic from being incorrectly bound to
+  PPE. Existing `meta l4proto { tcp, udp }` firewall4 rules are unaffected.
+
+### LuCI and Mesh
+
+- `luci-app-airoha` unifies the NPU and FlowSense pages, generates status and
+  port topology from the device tree, and adds persistent CPU governor/max_freq
+  settings, refresh timing, dark-theme support, and bilingual translations.
+- `luci-app-mesh-conf` adds DAWN client onboarding, 802.11k/v/r support, and a
+  6 GHz band patch, and fixes sync-service recovery, executable permissions,
+  and empty values overwriting SAE keys.
+- The new `airoha-ponctl`, `airoha-pond`, `luci-app-pon`, ToD PHC, and EN7581
+  PCM-SPI voice stack is selected only in the XG2010G config, not XR1710G builds.
+
+### Build and versioning
+
+- Added separate `1710.config` and `2010.config` build entry points. GitHub
+  Actions can select a device config, and release names and files include the
+  corresponding model.
+- Firmware versions now identify XR1710G/XG2010G automatically from
+  `CONFIG_TARGET_PROFILE`.
+- Added Gemtek profile isolation checks for config before builds and kernel
+  config/image manifests after builds, preventing package-set crossover between
+  XR1710G and XG2010G.
+- Remote build scripts can select either device config and retry failed builds
+  with `V=s`, preserving detailed logs.
+
+### Validation
+
+- `git diff --check` passed.
+- XR1710G and XG2010G profile isolation checks passed.
+- A full firmware build was not run in this round.
+
+Key commits: `4b4ed05f79`, `31eda9dc56`, `4ebc4c2c9b`, `759359070c`,
+`b94f6f29b3`.
+
 ## 2026-09-14
 
 ### Upstream sync

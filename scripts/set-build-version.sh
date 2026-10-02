@@ -22,7 +22,27 @@
 set -euo pipefail
 
 config_file="${1:-.config}"
-version_dist="${VERSION_DIST:-ImmortalWrt naoki66}"
+
+# Infer the device model from CONFIG_TARGET_PROFILE and write it to VERSION_DIST
+# so the firmware identifies itself. For example,
+# DEVICE_gemtek_xg2010g-ubi becomes XG2010G and DEVICE_gemtek_xr1710g(-ubi)
+# becomes XR1710G. Return an empty string when no model can be inferred, keeping
+# the default "ImmortalWrt naoki66".
+detect_device_model() {
+	local profile model
+	profile="$(sed -n -e 's/^CONFIG_TARGET_PROFILE="\(.*\)"$/\1/p' "$config_file" | head -n 1)"
+	[ -n "$profile" ] || profile="$(sed -n -e 's/^CONFIG_TARGET_PROFILE=\(.*\)$/\1/p' "$config_file" | head -n 1)"
+	[ -n "$profile" ] || profile="$(sed -n -e 's/^CONFIG_TARGET_DEVICE_airoha_an7581_DEVICE_\(.*\)=y$/DEVICE_\1/p' "$config_file" | head -n 1)"
+	[[ "$profile" =~ DEVICE_([A-Za-z0-9_+-]+) ]] || return 1
+	model="${BASH_REMATCH[1]}"
+	model="${model#gemtek_}"
+	model="${model%-ubi}"
+	[ -n "$model" ] || return 1
+	printf '%s' "$model" | tr '[:lower:]' '[:upper:]'
+}
+
+device_model="$(detect_device_model || true)"
+version_dist="${VERSION_DIST:-ImmortalWrt naoki66${device_model:+ $device_model}}"
 build_tz="${BUILD_TZ:-Asia/Shanghai}"
 commit_len="${COMMIT_LEN:-8}"
 version_filenames="${VERSION_FILENAMES:-y}"
