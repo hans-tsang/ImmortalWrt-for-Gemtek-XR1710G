@@ -38,6 +38,33 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Restore constant signing key
+        env:
+          USIGN_SIGN_KEY: ${{ secrets.USIGN_SIGN_KEY }}
+          USIGN_SIGN_KEY_PUB: ${{ vars.USIGN_SIGN_KEY_PUB }}
+        run: |
+          set -euo pipefail
+          if [ -z "${USIGN_SIGN_KEY:-}" ]; then
+            echo "::warning::USIGN_SIGN_KEY repository secret is not set; the build will generate an ephemeral usign key and packages/firmware will NOT be consistently signed (overlay install may fail)."
+            exit 0
+          fi
+          printf '%s\n' "${USIGN_SIGN_KEY}" > key-build
+          chmod 600 key-build
+          if [ -n "${USIGN_SIGN_KEY_PUB:-}" ]; then
+            printf '%s\n' "${USIGN_SIGN_KEY_PUB}" > key-build.pub
+          fi
+          python3 - <<'PY'
+import base64, os
+def dec(p):
+    return base64.b64decode(open(p).read().splitlines()[1])
+sk = dec('key-build')
+pk = dec('key-build.pub') if os.path.exists('key-build.pub') else b''
+assert len(sk) == 64, f"key-build must decode to 64 bytes (seed||pub), got {len(sk)}"
+assert sk[32:] == pk, "key-build.pub must equal the tail 32 bytes of key-build"
+print(f"signing key OK: private={len(sk)}B public={len(pk)}B, keypair consistent")
+PY
+          echo "Restored constant usign signing key -> $(pwd)/key-build"
+
       - name: Generate build version
         id: version
         run: |
@@ -97,6 +124,20 @@ jobs:
 
       - name: Download sources
         run: make download -j$(nproc)
+
+      - name: Validate signing key with usign
+        run: |
+          set -euo pipefail
+          [ -f key-build ] || exit 0
+          make tools/usign/compile > /tmp/usign_build.log 2>&1 || {
+            echo "::error::failed to build host usign"
+            tail -25 /tmp/usign_build.log
+            exit 1
+          }
+          printf 'ci-sign-test' > /tmp/tmsg
+          staging_dir/host/bin/usign -S -m /tmp/tmsg -s key-build -x /tmp/tmsg.sig
+          staging_dir/host/bin/usign -V -m /tmp/tmsg -P key-build.pub -x /tmp/tmsg.sig
+          echo "usign sign+verify round-trip OK"
 
       - name: Build Firmware
         shell: bash
