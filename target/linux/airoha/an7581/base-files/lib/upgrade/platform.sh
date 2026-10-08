@@ -47,6 +47,8 @@ platform_check_image() {
 		;;
 	gemtek,xg2010g-ubi|\
 	gemtek,xg2010g|\
+	gemtek,xg2010g-2g-ubi|\
+	gemtek,xg2010g-2g|\
 	gemtek,xr1710g-ubi)
 		gemtek_ubi_layout_check "$board" || {
 			echo "Unsupported Gemtek UBI layout; refusing sysupgrade."
@@ -56,6 +58,7 @@ platform_check_image() {
 		return $?
 		;;
 	nokia,xg-040g-md-ubi|\
+	nokia,xg-040g-tf-ubi|\
 	quantum,q1000k-ubi)
 		fit_check_image "$1"
 		return $?
@@ -70,16 +73,26 @@ platform_do_upgrade() {
 
 	case "$board" in
 		gemtek,xg2010g-ubi|\
-		gemtek,xr1710g-ubi|\
-		gemtek,xg2010g)
+		gemtek,xg2010g|\
+		gemtek,xg2010g-2g-ubi|\
+		gemtek,xg2010g-2g|\
+		gemtek,xr1710g-ubi)
 			gemtek_ubi_layout_check "$board" &&
 				airoha_require_ubi_layout factory && fit_do_upgrade "$1"
 			;;
 		gemtek,w1700k-ubi|\
 		gemtek,xr1710g|\
 		nokia,xg-040g-md-ubi|\
+		nokia,xg-040g-tf-ubi|\
 		quantum,q1000k-ubi)
-			fit_do_upgrade "$1"
+			case "$board" in
+				nokia,xg-040g-md-ubi|nokia,xg-040g-tf-ubi)
+					airoha_require_ubi_layout bosa ri && fit_do_upgrade "$1"
+					;;
+				*)
+					fit_do_upgrade "$1"
+					;;
+			esac
 			;;
 		*)
 			nand_do_upgrade "$1"
