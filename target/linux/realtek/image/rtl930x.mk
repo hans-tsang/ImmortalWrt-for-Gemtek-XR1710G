@@ -60,6 +60,20 @@ define Device/sirivision_sr-st3808f
 endef
 TARGET_DEVICES += sirivision_sr-st3808f
 
+define Device/hasivo-stock-patch-installer
+  # Stock download patch requires a filename starting with patch, ending in .tar.gz, and no longer than 64 bytes.
+  DEVICE_IMG_NAME = $$(if $$(filter factory.patch.tar.gz,$$(2)),patch-openwrt-$$(DEVICE_NAME).tar.gz,$$(DEVICE_IMG_PREFIX)-$$(1)-$$(2))
+  # ImageBuilder and AUTOREMOVE lack prepared BusyBox sources and U-Boot objects.
+  $(if $(or $(IB),$(CONFIG_AUTOREMOVE)),,IMAGES += factory.patch.tar.gz)
+  IMAGE/factory.patch.tar.gz := \
+	append-kernel | \
+	pad-to 64k | \
+	append-rootfs | \
+	pad-rootfs | \
+	check-size | \
+	hasivo-stock-patch
+endef
+
 define Device/hasivo_f1100w-4sx-4xgt-common
   SOC := rtl9303
   DEVICE_VENDOR := Hasivo
@@ -67,10 +81,10 @@ define Device/hasivo_f1100w-4sx-4xgt-common
   DEVICE_ALT0_VENDOR := Hasivo
   DEVICE_ALT0_MODEL := F1100W-4SX-4XGT-SE
   DEVICE_PACKAGES := \
-    kmod-hasivo-mcu-sensor kmod-hasivo-mcu-wdt kmod-mfd-hasivo-stc8 \
-    kmod-phy-realtek rtl826x-firmware
+    kmod-phy-realtek rtl826x-firmware uboot-envtools
   IMAGE_SIZE := 29696k
   $(Device/kernel-lzma)
+  $(Device/hasivo-stock-patch-installer)
 endef
 
 define Device/hasivo_f1100w-4sx-4xgt
@@ -119,6 +133,18 @@ define Device/hasivo_s1100w-8xgt-se
   $(Device/kernel-lzma)
 endef
 TARGET_DEVICES += hasivo_s1100w-8xgt-se
+
+define Device/hasivo_s1100wp-8gt-2s-plus
+  SOC := rtl9302
+  DEVICE_VENDOR := Hasivo
+  DEVICE_MODEL := S1100WP-8GT-2S+
+  DEVICE_PACKAGES := kmod-pse-hasivo-hs104 kmod-mfd-hasivo-stc8 \
+    kmod-hasivo-mcu-wdt kmod-rtc-pcf8563 uboot-envtools
+  IMAGE_SIZE := 29696k
+  $(Device/kernel-lzma)
+  $(Device/hasivo-stock-patch-installer)
+endef
+TARGET_DEVICES += hasivo_s1100wp-8gt-2s-plus
 
 define Device/hasivo_s1100wp-8gt-se
   SOC := rtl9303
@@ -187,6 +213,23 @@ define Device/keeplink_kp-9000-8xm
   $(Device/kernel-lzma)
 endef
 TARGET_DEVICES += keeplink_kp-9000-8xm
+
+define Device/lianguo_lg-swtgw3c8f
+  SOC := rtl9303
+  UIMAGE_MAGIC := 0x83800000
+  DEVICE_VENDOR := Lianguo
+  DEVICE_MODEL := LG-SWTGW3C8F
+  IMAGE_SIZE := 12288k
+  $(Device/kernel-lzma)
+  IMAGES += factory.bix
+  IMAGE/factory.bix := \
+	append-kernel | \
+	pad-to 64k | \
+	append-rootfs | \
+	pad-rootfs | \
+	check-size
+endef
+TARGET_DEVICES += lianguo_lg-swtgw3c8f
 
 define Device/mokerlink_2g080gm
   SOC := rtl9303
